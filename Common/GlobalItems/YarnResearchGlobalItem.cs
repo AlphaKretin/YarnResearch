@@ -15,5 +15,11 @@ namespace YarnResearch.Common.GlobalItems
 
 			return !ResearchCascadeSystem.IsResearched(item.type);
 		}
+
+		public override void OnResearched(Item item, bool fullyResearched)
+		{
+			if (fullyResearched)
+				ResearchCascadeSystem.HandleResearched(item.type);
+		}
 	}
 }

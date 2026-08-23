@@ -60,6 +60,7 @@ namespace YarnResearch.Common.Players
 			if (remaining.HasValue && item.stack >= remaining.Value) {
 				ResearchCascadeSystem.RegisterHeldOrigin(item.type);
 				CreativeUI.ResearchItem(item.type);
+				ResearchCascadeSystem.ClearHeldOrigin(item.type);
 			}
 		}
 	}

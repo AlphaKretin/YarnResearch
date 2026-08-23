@@ -12,17 +12,21 @@ namespace YarnResearch.Common.Systems
 	public class ResearchCascadeSystem : ModSystem
 	{
 		private static readonly HashSet<int> ResearchedTypes = new();
-		private static int _lastKnownEditId = -1;
 
 		private static readonly Dictionary<int, List<int>> RecipesConsumingItem = new();
 		private static readonly Dictionary<int, List<int>> StationItemTypesByTile = new();
 
-		// Populated by YarnResearchPlayer just before it calls CreativeUI.ResearchItem, so the
-		// detection loop below can tell "held-threshold" apart from a manual vanilla-UI research.
+		// Populated by YarnResearchPlayer just before it calls CreativeUI.ResearchItem, so
+		// HandleResearched can tell "held-threshold" apart from a manual vanilla-UI research.
 		private static readonly HashSet<int> PendingHeldOrigins = new();
 
 		private static readonly Queue<int> PendingHeldNotifications = new();
 		private static readonly Queue<int> PendingCraftableNotifications = new();
+
+		// Set while a cascade triggered by HandleResearched is draining, so a CreativeUI.ResearchItem
+		// call made from within that drain - which synchronously re-enters HandleResearched via
+		// GlobalItem.OnResearched - is recognized as our own cascade rather than an external research.
+		private static Queue<int> _activeCascadeQueue;
 
 		public static bool IsResearched(int type)
 		{
@@ -37,6 +41,40 @@ namespace YarnResearch.Common.Systems
 		}
 
 		public static void RegisterHeldOrigin(int type) => PendingHeldOrigins.Add(type);
+
+		public static void ClearHeldOrigin(int type) => PendingHeldOrigins.Remove(type);
+
+		public static void HandleResearched(int type)
+		{
+			if (ResearchedTypes.Contains(type))
+				return;
+
+			bool heldOrigin = PendingHeldOrigins.Remove(type);
+			bool isReentrant = _activeCascadeQueue != null;
+
+			Queue<int> notificationQueue = heldOrigin
+				? PendingHeldNotifications
+				: isReentrant ? PendingCraftableNotifications : null;
+
+			if (isReentrant) {
+				// The active DrainCascade loop below owns processing this type further.
+				MarkResearched(type, _activeCascadeQueue, notificationQueue);
+				return;
+			}
+
+			var queue = new Queue<int>();
+			MarkResearched(type, queue, notificationQueue);
+
+			_activeCascadeQueue = queue;
+			try {
+				DrainCascade(queue);
+			}
+			finally {
+				_activeCascadeQueue = null;
+			}
+
+			FlushNotifications();
+		}
 
 		public override void PostAddRecipes()
 		{
@@ -76,7 +114,6 @@ namespace YarnResearch.Common.Systems
 		{
 			ResearchedTypes.Clear();
 			PendingHeldOrigins.Clear();
-			_lastKnownEditId = -1;
 
 			for (int type = 0; type < ItemLoader.ItemCount; type++) {
 				if (!ContentSamples.ItemsByType.TryGetValue(type, out Item item) || item.ResearchUnlockCount <= 0)
@@ -88,41 +125,7 @@ namespace YarnResearch.Common.Systems
 			}
 		}
 
-		public override void PostUpdateEverything()
-		{
-			int currentEditId = Main.LocalPlayerCreativeTracker.ItemSacrifices.LastEditId;
-			if (currentEditId == _lastKnownEditId)
-				return;
-
-			_lastKnownEditId = currentEditId;
-
-			var queue = new Queue<int>();
-
-			for (int type = 0; type < ItemLoader.ItemCount; type++) {
-				if (ResearchedTypes.Contains(type))
-					continue;
-
-				if (!ContentSamples.ItemsByType.TryGetValue(type, out Item item) || item.ResearchUnlockCount <= 0)
-					continue;
-
-				CreativeUI.GetSacrificeCount(type, out bool fullyResearched);
-				if (!fullyResearched)
-					continue;
-
-				// Anything not registered by YarnResearchPlayer this tick was researched by some
-				// other means (typically the player using the vanilla Research UI directly) - still
-				// feed the cascade so downstream recipes unlock, but don't announce it as "ours".
-				bool heldOrigin = PendingHeldOrigins.Remove(type);
-				MarkResearched(type, queue, heldOrigin ? PendingHeldNotifications : null);
-			}
-
-			PendingHeldOrigins.Clear();
-
-			DrainCascade(queue);
-			FlushNotifications();
-		}
-
-		private void DrainCascade(Queue<int> queue)
+		private static void DrainCascade(Queue<int> queue)
 		{
 			var config = ModContent.GetInstance<YarnResearchConfig>();
 
@@ -142,8 +145,8 @@ namespace YarnResearch.Common.Systems
 					if (!AllIngredientsResearched(recipe) || !StationResearched(recipe))
 						continue;
 
+					// Synchronously re-enters HandleResearched above via GlobalItem.OnResearched.
 					CreativeUI.ResearchItem(outputType);
-					MarkResearched(outputType, queue, PendingCraftableNotifications);
 				}
 			}
 		}
