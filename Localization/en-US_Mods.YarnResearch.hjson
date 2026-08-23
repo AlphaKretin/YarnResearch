@@ -1,0 +1,35 @@
+Configs: {
+	YarnResearchConfig: {
+		DisplayName: Yarn Research Config
+
+		Headers: {
+			Features: Features Header
+			Options: Options Header
+		}
+
+		AutoResearchHeldItems: {
+			Label: Auto Research Held Items
+			Tooltip: ""
+		}
+
+		AutoResearchCraftable: {
+			Label: Auto Research Craftable
+			Tooltip: ""
+		}
+
+		InfiniteResearchedConsumables: {
+			Label: Infinite Researched Consumables
+			Tooltip: ""
+		}
+
+		IncludeBankAndSafeInScan: {
+			Label: Include Bank And Safe In Scan
+			Tooltip: ""
+		}
+
+		ShowAutoResearchNotifications: {
+			Label: Show Auto Research Notifications
+			Tooltip: ""
+		}
+	}
+}
