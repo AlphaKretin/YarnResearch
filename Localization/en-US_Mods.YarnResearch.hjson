@@ -31,5 +31,10 @@ Configs: {
 			Label: Show Auto Research Notifications
 			Tooltip: ""
 		}
+
+		AutoResearchShimmerOutputs: {
+			Tooltip: ""
+			Label: Auto Research Shimmer Outputs
+		}
 	}
 }

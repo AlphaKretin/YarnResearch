@@ -17,6 +17,10 @@ namespace YarnResearch.Common.Players
 				return;
 
 			var config = ModContent.GetInstance<YarnResearchConfig>();
+
+			if (config.AutoResearchShimmerOutputs && Player.ZoneShimmer)
+				ResearchCascadeSystem.DiscoverShimmer();
+
 			if (!config.AutoResearchHeldItems)
 				return;
 

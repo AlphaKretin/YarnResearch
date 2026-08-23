@@ -17,6 +17,9 @@ namespace YarnResearch.Common.Configs
 		[DefaultValue(true)]
 		public bool InfiniteResearchedConsumables;
 
+		[DefaultValue(true)]
+		public bool AutoResearchShimmerOutputs;
+
 		[Header("Options")]
 		[DefaultValue(true)]
 		public bool IncludeBankAndSafeInScan;
