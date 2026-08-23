@@ -28,6 +28,11 @@ namespace YarnResearch.Common.Systems
 		// GlobalItem.OnResearched - is recognized as our own cascade rather than an external research.
 		private static Queue<int> _activeCascadeQueue;
 
+		// Set for the duration of a caller-defined batch (e.g. one YarnResearchPlayer scan pass), so
+		// several distinct top-level HandleResearched calls within it share one queue/flush instead of
+		// each draining and flushing independently.
+		private static Queue<int> _batchQueue;
+
 		public static bool IsResearched(int type)
 		{
 			if (ResearchedTypes.Contains(type))
@@ -44,6 +49,27 @@ namespace YarnResearch.Common.Systems
 
 		public static void ClearHeldOrigin(int type) => PendingHeldOrigins.Remove(type);
 
+		public static void BeginBatch() => _batchQueue = new Queue<int>();
+
+		public static void EndBatch()
+		{
+			Queue<int> queue = _batchQueue;
+			_batchQueue = null;
+
+			if (queue == null)
+				return;
+
+			_activeCascadeQueue = queue;
+			try {
+				DrainCascade(queue);
+			}
+			finally {
+				_activeCascadeQueue = null;
+			}
+
+			FlushNotifications();
+		}
+
 		public static void HandleResearched(int type)
 		{
 			if (ResearchedTypes.Contains(type))
@@ -59,6 +85,12 @@ namespace YarnResearch.Common.Systems
 			if (isReentrant) {
 				// The active DrainCascade loop below owns processing this type further.
 				MarkResearched(type, _activeCascadeQueue, notificationQueue);
+				return;
+			}
+
+			if (_batchQueue != null) {
+				// Collected, not drained yet - EndBatch drains and flushes everything together.
+				MarkResearched(type, _batchQueue, notificationQueue);
 				return;
 			}
 

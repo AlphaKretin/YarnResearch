@@ -20,12 +20,18 @@ namespace YarnResearch.Common.Players
 			if (!config.AutoResearchHeldItems)
 				return;
 
-			ScanAndDiff(Player.inventory);
+			ResearchCascadeSystem.BeginBatch();
+			try {
+				ScanAndDiff(Player.inventory);
 
-			if (config.IncludeBankAndSafeInScan) {
-				ScanAndDiff(Player.bank.item);
-				ScanAndDiff(Player.bank2.item);
-				ScanAndDiff(Player.bank3.item);
+				if (config.IncludeBankAndSafeInScan) {
+					ScanAndDiff(Player.bank.item);
+					ScanAndDiff(Player.bank2.item);
+					ScanAndDiff(Player.bank3.item);
+				}
+			}
+			finally {
+				ResearchCascadeSystem.EndBatch();
 			}
 		}
 
