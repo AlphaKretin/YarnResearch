@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using Terraria;
+using Terraria.Audio;
 using Terraria.GameContent.Creative;
+using Terraria.GameContent.UI.Chat;
 using Terraria.ID;
 using Terraria.ModLoader;
 using YarnResearch.Common.Configs;
@@ -14,7 +16,13 @@ namespace YarnResearch.Common.Systems
 
 		private static readonly Dictionary<int, List<int>> RecipesConsumingItem = new();
 		private static readonly Dictionary<int, List<int>> StationItemTypesByTile = new();
-		private static readonly Queue<string> PendingNotifications = new();
+
+		// Populated by YarnResearchPlayer just before it calls CreativeUI.ResearchItem, so the
+		// detection loop below can tell "held-threshold" apart from a manual vanilla-UI research.
+		private static readonly HashSet<int> PendingHeldOrigins = new();
+
+		private static readonly Queue<int> PendingHeldNotifications = new();
+		private static readonly Queue<int> PendingCraftableNotifications = new();
 
 		public static bool IsResearched(int type)
 		{
@@ -27,6 +35,8 @@ namespace YarnResearch.Common.Systems
 
 			return fullyResearched;
 		}
+
+		public static void RegisterHeldOrigin(int type) => PendingHeldOrigins.Add(type);
 
 		public override void PostAddRecipes()
 		{
@@ -65,6 +75,7 @@ namespace YarnResearch.Common.Systems
 		public override void OnWorldLoad()
 		{
 			ResearchedTypes.Clear();
+			PendingHeldOrigins.Clear();
 			_lastKnownEditId = -1;
 
 			for (int type = 0; type < ItemLoader.ItemCount; type++) {
@@ -95,9 +106,17 @@ namespace YarnResearch.Common.Systems
 					continue;
 
 				CreativeUI.GetSacrificeCount(type, out bool fullyResearched);
-				if (fullyResearched)
-					MarkResearched(type, queue);
+				if (!fullyResearched)
+					continue;
+
+				// Anything not registered by YarnResearchPlayer this tick was researched by some
+				// other means (typically the player using the vanilla Research UI directly) - still
+				// feed the cascade so downstream recipes unlock, but don't announce it as "ours".
+				bool heldOrigin = PendingHeldOrigins.Remove(type);
+				MarkResearched(type, queue, heldOrigin ? PendingHeldNotifications : null);
 			}
+
+			PendingHeldOrigins.Clear();
 
 			DrainCascade(queue);
 			FlushNotifications();
@@ -124,7 +143,7 @@ namespace YarnResearch.Common.Systems
 						continue;
 
 					CreativeUI.ResearchItem(outputType);
-					MarkResearched(outputType, queue);
+					MarkResearched(outputType, queue, PendingCraftableNotifications);
 				}
 			}
 		}
@@ -155,31 +174,45 @@ namespace YarnResearch.Common.Systems
 			return false;
 		}
 
-		private static void MarkResearched(int type, Queue<int> queue)
+		private static void MarkResearched(int type, Queue<int> queue, Queue<int> notificationQueue)
 		{
 			if (!ResearchedTypes.Add(type))
 				return;
 
 			queue.Enqueue(type);
-			PendingNotifications.Enqueue(Lang.GetItemNameValue(type));
+			notificationQueue?.Enqueue(type);
 		}
 
 		private static void FlushNotifications()
 		{
-			if (PendingNotifications.Count == 0)
+			if (PendingHeldNotifications.Count == 0 && PendingCraftableNotifications.Count == 0)
 				return;
 
 			var config = ModContent.GetInstance<YarnResearchConfig>();
 			if (config.ShowAutoResearchNotifications) {
-				var names = new List<string>(PendingNotifications);
-				string message = names.Count == 1
-					? $"Auto-researched: {names[0]}"
-					: $"Auto-researched: {string.Join(", ", names)}";
+				if (PendingHeldNotifications.Count > 0)
+					Main.NewText($"Auto-researched: {BuildTagList(PendingHeldNotifications)}");
 
-				Main.NewText(message);
+				if (PendingCraftableNotifications.Count > 0)
+					Main.NewText($"Auto-crafted: {BuildTagList(PendingCraftableNotifications)}");
+
+				SoundEngine.PlaySound(SoundID.ResearchComplete);
 			}
 
-			PendingNotifications.Clear();
+			PendingHeldNotifications.Clear();
+			PendingCraftableNotifications.Clear();
+		}
+
+		private static string BuildTagList(Queue<int> types)
+		{
+			var tags = new List<string>();
+
+			foreach (int type in types) {
+				if (ContentSamples.ItemsByType.TryGetValue(type, out Item item))
+					tags.Add(ItemTagHandler.GenerateTag(item));
+			}
+
+			return string.Join(", ", tags);
 		}
 	}
 }

@@ -57,8 +57,10 @@ namespace YarnResearch.Common.Players
 				return;
 
 			int? remaining = CreativeUI.GetSacrificesRemaining(item.type);
-			if (remaining.HasValue && item.stack >= remaining.Value)
+			if (remaining.HasValue && item.stack >= remaining.Value) {
+				ResearchCascadeSystem.RegisterHeldOrigin(item.type);
 				CreativeUI.ResearchItem(item.type);
+			}
 		}
 	}
 }
