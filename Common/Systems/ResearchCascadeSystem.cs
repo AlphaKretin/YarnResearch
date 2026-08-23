@@ -215,7 +215,7 @@ namespace YarnResearch.Common.Systems
 					tags.Add(ItemTagHandler.GenerateTag(item));
 			}
 
-			return string.Join(", ", tags);
+			return string.Join("", tags);
 		}
 	}
 }
