@@ -18,12 +18,22 @@ namespace YarnResearch.Common.Players
 
 			var config = ModContent.GetInstance<YarnResearchConfig>();
 
-			if (config.AutoResearchShimmerOutputs && Player.ZoneShimmer)
-				ResearchCascadeSystem.DiscoverShimmer();
+			if (Player.ZoneShimmer && ResearchCascadeSystem.MarkShimmerDiscovered() && config.AutoResearchShimmerOutputs)
+				ResearchCascadeSystem.RunShimmerCatchupScan();
 
-			if (!config.AutoResearchHeldItems)
-				return;
+			if (config.AutoResearchHeldItems)
+				RunScan(config);
+		}
 
+		// Callable independent of AutoResearchHeldItems - used by the manual trigger button.
+		public static void ManualScan()
+		{
+			var config = ModContent.GetInstance<YarnResearchConfig>();
+			Main.LocalPlayer.GetModPlayer<YarnResearchPlayer>().RunScan(config);
+		}
+
+		private void RunScan(YarnResearchConfig config)
+		{
 			ResearchCascadeSystem.BeginBatch();
 			try {
 				ScanAndDiff(Player.inventory);

@@ -99,16 +99,30 @@ namespace YarnResearch.Common.Systems
 
 		public static void ClearHeldOrigin(int type) => PendingHeldOrigins.Remove(type);
 
-		// Idempotent - safe to call every tick while the player is near Shimmer. Only the first call
-		// (per world) does anything: it flips the persisted flag and runs a one-time catch-up pass over
-		// already-researched items so any newly-reachable Shimmer outputs unlock immediately, batched
-		// into one notification.
-		public static void DiscoverShimmer()
+		public static bool ShimmerDiscovered => _shimmerDiscovered;
+
+		// Idempotent - safe to call every tick while the player is near Shimmer. Sets the persisted
+		// per-world "has seen Shimmer" flag unconditionally (independent of the AutoResearchShimmerOutputs
+		// toggle - visiting Shimmer is world knowledge, not itself a research action). Returns true only
+		// on the call that actually flips the flag, so callers can gate a one-time catch-up scan on it.
+		public static bool MarkShimmerDiscovered()
 		{
 			if (_shimmerDiscovered)
-				return;
+				return false;
 
 			_shimmerDiscovered = true;
+			return true;
+		}
+
+		// Requires MarkShimmerDiscovered to have been called at least once (per world) - a no-op
+		// otherwise. Runs a catch-up pass over already-researched items so any reachable Shimmer outputs
+		// unlock, batched into one notification. Callable both by the automatic path (immediately after
+		// first discovery, gated by the config toggle there) and directly by the manual trigger button
+		// (bypassing the toggle, same as the recipe-cascade manual trigger).
+		public static void RunShimmerCatchupScan()
+		{
+			if (!_shimmerDiscovered)
+				return;
 
 			int[] snapshot = ResearchedTypes.ToArray();
 			var stopwatch = Stopwatch.StartNew();
@@ -124,7 +138,7 @@ namespace YarnResearch.Common.Systems
 
 			stopwatch.Stop();
 			ModContent.GetInstance<YarnResearch>().Logger.Info(
-				$"ResearchCascadeSystem shimmer discovery: scanned {snapshot.Length} already-researched items, " +
+				$"ResearchCascadeSystem shimmer catch-up: scanned {snapshot.Length} already-researched items, " +
 				$"took {stopwatch.Elapsed.TotalMilliseconds:F2}ms total (includes the cascade drain logged separately above)");
 		}
 
@@ -399,21 +413,8 @@ namespace YarnResearch.Common.Systems
 				int type = queue.Dequeue();
 				stepsProcessed++;
 
-				if (config.AutoResearchCraftable && RecipesConsumingItem.TryGetValue(type, out List<int> recipeIndices)) {
-					foreach (int recipeIndex in recipeIndices) {
-						Recipe recipe = Main.recipe[recipeIndex];
-						int outputType = recipe.createItem.type;
-
-						if (ResearchedTypes.Contains(outputType))
-							continue;
-
-						if (!AllIngredientsResearched(recipe) || !StationResearched(recipe))
-							continue;
-
-						// Synchronously re-enters HandleResearched above via GlobalItem.OnResearched.
-						CreativeUI.ResearchItem(outputType);
-					}
-				}
+				if (config.AutoResearchCraftable)
+					ProcessCraftableOutputs(type);
 
 				if (config.AutoResearchShimmerOutputs && _shimmerDiscovered)
 					ProcessShimmerOutputs(type);
@@ -424,6 +425,48 @@ namespace YarnResearch.Common.Systems
 				if (queue.Count > maxQueueDepth)
 					maxQueueDepth = queue.Count;
 			}
+		}
+
+		private static void ProcessCraftableOutputs(int type)
+		{
+			if (!RecipesConsumingItem.TryGetValue(type, out List<int> recipeIndices))
+				return;
+
+			foreach (int recipeIndex in recipeIndices) {
+				Recipe recipe = Main.recipe[recipeIndex];
+				int outputType = recipe.createItem.type;
+
+				if (ResearchedTypes.Contains(outputType))
+					continue;
+
+				if (!AllIngredientsResearched(recipe) || !StationResearched(recipe))
+					continue;
+
+				// Synchronously re-enters HandleResearched above via GlobalItem.OnResearched.
+				CreativeUI.ResearchItem(outputType);
+			}
+		}
+
+		// Catch-up pass, ignoring the AutoResearchCraftable toggle - callable directly by the manual
+		// trigger button so a player who keeps the toggle off can still fire the cascade on demand.
+		public static void ManualCascadeScan()
+		{
+			int[] snapshot = ResearchedTypes.ToArray();
+			var stopwatch = Stopwatch.StartNew();
+
+			BeginBatch();
+			try {
+				foreach (int type in snapshot)
+					ProcessCraftableOutputs(type);
+			}
+			finally {
+				EndBatch();
+			}
+
+			stopwatch.Stop();
+			ModContent.GetInstance<YarnResearch>().Logger.Info(
+				$"ResearchCascadeSystem manual cascade scan: scanned {snapshot.Length} already-researched items, " +
+				$"took {stopwatch.Elapsed.TotalMilliseconds:F2}ms total (includes the cascade drain logged separately above)");
 		}
 
 		private static bool AllIngredientsResearched(Recipe recipe)
