@@ -1,3 +1,4 @@
+using Microsoft.Xna.Framework;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -5,6 +6,7 @@ using Terraria;
 using Terraria.Audio;
 using Terraria.GameContent;
 using Terraria.GameContent.Creative;
+using Terraria.GameContent.ItemDropRules;
 using Terraria.GameContent.UI.Chat;
 using Terraria.ID;
 using Terraria.ModLoader;
@@ -37,9 +39,16 @@ namespace YarnResearch.Common.Systems
 		// as PendingHeldOrigins but for Shimmer-sourced unlocks.
 		private static readonly HashSet<int> PendingShimmerOrigins = new();
 
+		// Populated by AttemptCrateResearch just before it calls CreativeUI.ResearchItem, same purpose
+		// as PendingHeldOrigins but for crate-content unlocks.
+		private static readonly HashSet<int> PendingCrateOrigins = new();
+
 		private static readonly Queue<int> PendingHeldNotifications = new();
 		private static readonly Queue<int> PendingCraftableNotifications = new();
 		private static readonly Queue<int> PendingShimmerNotifications = new();
+		private static readonly Queue<int> PendingCrateNotifications = new();
+
+		public static ModKeybind ResearchCrateContentsKeybind { get; private set; }
 
 		// Set while a cascade triggered by HandleResearched is draining, so a CreativeUI.ResearchItem
 		// call made from within that drain - which synchronously re-enters HandleResearched via
@@ -50,6 +59,29 @@ namespace YarnResearch.Common.Systems
 		// several distinct top-level HandleResearched calls within it share one queue/flush instead of
 		// each draining and flushing independently.
 		private static Queue<int> _batchQueue;
+
+		public override void Load()
+		{
+			ResearchCrateContentsKeybind = KeybindLoader.RegisterKeybind(Mod, "ResearchCrateContents", "OemPeriod");
+		}
+
+		public override void Unload()
+		{
+			ResearchCrateContentsKeybind = null;
+		}
+
+		// UpdateUI (not ModPlayer.ProcessTriggers) so the hotkey still works during the partial updates
+		// Main runs while autoPause is active and a menu (e.g. inventory) is open - ProcessTriggers is
+		// tied to Player.Update, which those partial updates skip.
+		public override void UpdateUI(GameTime gameTime)
+		{
+			if (Main.gameMenu || !ResearchCrateContentsKeybind.JustPressed)
+				return;
+
+			Item hoverItem = Main.HoverItem;
+			if (!hoverItem.IsAir)
+				TryUnpackCrate(hoverItem.type);
+		}
 
 		public static bool IsResearched(int type)
 		{
@@ -131,6 +163,74 @@ namespace YarnResearch.Common.Systems
 			PendingShimmerOrigins.Remove(outputType);
 		}
 
+		// Unpacks a researched crate's possible contents on demand, regardless of the
+		// AutoResearchCrateContents toggle - this is the manual hotkey path's deliberate override.
+		public static void TryUnpackCrate(int type)
+		{
+			if (!ItemID.Sets.OpenableBag[type] || !IsResearched(type))
+				return;
+
+			BeginBatch();
+			try {
+				ProcessCrateContents(type);
+			}
+			finally {
+				EndBatch();
+			}
+		}
+
+		// True if a crate's possible contents include at least one item that is both researchable and
+		// not yet researched - used to gate the "press X to research contents" tooltip hint so it stops
+		// appearing once there's nothing left for the hotkey to do.
+		public static bool HasUnresearchedCrateContents(int crateType)
+		{
+			foreach (int contentType in GetPossibleCrateContents(crateType)) {
+				if (IsUnresearchedAndResearchable(contentType))
+					return true;
+			}
+
+			return false;
+		}
+
+		// Enumerates everything a crate/bag could possibly contain, using the same ReportDroprates
+		// mechanism the vanilla Bestiary "possible drops" panel uses for NPCs - no RNG rolled, nothing
+		// actually dropped. Coins and other unresearchable items are filtered out by the caller.
+		private static IEnumerable<int> GetPossibleCrateContents(int crateType)
+		{
+			var drops = new List<DropRateInfo>();
+			var chainFeed = new DropRateInfoChainFeed(1f);
+
+			foreach (IItemDropRule rule in Main.ItemDropsDB.GetRulesForItemID(crateType))
+				rule.ReportDroprates(drops, chainFeed);
+
+			return drops.Select(d => d.itemId).Distinct();
+		}
+
+		private static void ProcessCrateContents(int type)
+		{
+			foreach (int contentType in GetPossibleCrateContents(type))
+				AttemptCrateResearch(contentType);
+		}
+
+		private static void AttemptCrateResearch(int outputType)
+		{
+			if (!IsUnresearchedAndResearchable(outputType))
+				return;
+
+			PendingCrateOrigins.Add(outputType);
+			// Synchronously re-enters HandleResearched below via GlobalItem.OnResearched.
+			CreativeUI.ResearchItem(outputType);
+			PendingCrateOrigins.Remove(outputType);
+		}
+
+		private static bool IsUnresearchedAndResearchable(int type)
+		{
+			if (ResearchedTypes.Contains(type))
+				return false;
+
+			return ContentSamples.ItemsByType.TryGetValue(type, out Item item) && item.ResearchUnlockCount > 0;
+		}
+
 		public static void BeginBatch() => _batchQueue = new Queue<int>();
 
 		public static void EndBatch()
@@ -180,13 +280,16 @@ namespace YarnResearch.Common.Systems
 
 			bool heldOrigin = PendingHeldOrigins.Remove(type);
 			bool shimmerOrigin = PendingShimmerOrigins.Remove(type);
+			bool crateOrigin = PendingCrateOrigins.Remove(type);
 			bool isReentrant = _activeCascadeQueue != null;
 
 			Queue<int> notificationQueue = heldOrigin
 				? PendingHeldNotifications
 				: shimmerOrigin
 					? PendingShimmerNotifications
-					: isReentrant ? PendingCraftableNotifications : null;
+					: crateOrigin
+						? PendingCrateNotifications
+						: isReentrant ? PendingCraftableNotifications : null;
 
 			if (isReentrant) {
 				// The active DrainCascade loop below owns processing this type further.
@@ -276,6 +379,7 @@ namespace YarnResearch.Common.Systems
 			ResearchedTypes.Clear();
 			PendingHeldOrigins.Clear();
 			PendingShimmerOrigins.Clear();
+			PendingCrateOrigins.Clear();
 
 			for (int type = 0; type < ItemLoader.ItemCount; type++) {
 				if (!ContentSamples.ItemsByType.TryGetValue(type, out Item item) || item.ResearchUnlockCount <= 0)
@@ -313,6 +417,9 @@ namespace YarnResearch.Common.Systems
 
 				if (config.AutoResearchShimmerOutputs && _shimmerDiscovered)
 					ProcessShimmerOutputs(type);
+
+				if (config.AutoResearchCrateContents && ItemID.Sets.OpenableBag[type])
+					ProcessCrateContents(type);
 
 				if (queue.Count > maxQueueDepth)
 					maxQueueDepth = queue.Count;
@@ -356,7 +463,8 @@ namespace YarnResearch.Common.Systems
 
 		private static void FlushNotifications()
 		{
-			if (PendingHeldNotifications.Count == 0 && PendingCraftableNotifications.Count == 0 && PendingShimmerNotifications.Count == 0)
+			if (PendingHeldNotifications.Count == 0 && PendingCraftableNotifications.Count == 0 &&
+				PendingShimmerNotifications.Count == 0 && PendingCrateNotifications.Count == 0)
 				return;
 
 			var config = ModContent.GetInstance<YarnResearchConfig>();
@@ -370,12 +478,16 @@ namespace YarnResearch.Common.Systems
 				if (PendingShimmerNotifications.Count > 0)
 					Main.NewText($"Auto-discovered: {BuildTagList(PendingShimmerNotifications)}");
 
+				if (PendingCrateNotifications.Count > 0)
+					Main.NewText($"Auto-unpacked: {BuildTagList(PendingCrateNotifications)}");
+
 				SoundEngine.PlaySound(SoundID.ResearchComplete);
 			}
 
 			PendingHeldNotifications.Clear();
 			PendingCraftableNotifications.Clear();
 			PendingShimmerNotifications.Clear();
+			PendingCrateNotifications.Clear();
 		}
 
 		private static string BuildTagList(Queue<int> types)

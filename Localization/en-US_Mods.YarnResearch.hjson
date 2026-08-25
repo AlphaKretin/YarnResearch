@@ -36,5 +36,13 @@ Configs: {
 			Tooltip: ""
 			Label: Auto Research Shimmer Outputs
 		}
+
+		AutoResearchCrateContents: {
+			Tooltip: ""
+			Label: Auto Research Crate Contents
+		}
 	}
 }
+
+Keybinds.ResearchCrateContents.DisplayName: Research Crate Contents
+YarnResearchGlobalItem.ResearchCrateContentsHint: Press {0} to research its possible contents

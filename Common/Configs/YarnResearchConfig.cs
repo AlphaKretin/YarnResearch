@@ -20,6 +20,9 @@ namespace YarnResearch.Common.Configs
 		[DefaultValue(true)]
 		public bool AutoResearchShimmerOutputs;
 
+		[DefaultValue(true)]
+		public bool AutoResearchCrateContents;
+
 		[Header("Options")]
 		[DefaultValue(true)]
 		public bool IncludeBankAndSafeInScan;
