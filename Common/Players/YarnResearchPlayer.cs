@@ -33,16 +33,11 @@ namespace YarnResearch.Common.Players
 
 		// Re-forces the toggled banner/Garden Gnome proximity flags every tick - see
 		// InfiniteBuffSystem.ForceProximityFlags for why this can't just be set once at toggle time.
-		// Called from both hooks since it's unconfirmed (without live testing) whether banner buff-granting
-		// happens before or after PostUpdateMiscEffects in vanilla's per-tick order - ExampleMod's own
-		// Garden Gnome workaround specifically uses PreModifyLuck (the confirmed-correct hook for luck),
-		// so that call is kept regardless.
-		public override void PostUpdateMiscEffects()
-		{
-			if (Player.whoAmI == Main.myPlayer)
-				InfiniteBuffSystem.ForceProximityFlags(Player);
-		}
-
+		// Confirmed via live logging (comparing flag state before forcing, tick over tick) that vanilla
+		// resets these flags to their real proximity values before PreModifyLuck runs each tick, and that
+		// PreModifyLuck itself always runs before any other per-tick read point - ExampleMod's own Garden
+		// Gnome workaround uses this same hook for luck - so a single call here is sufficient; no second
+		// call from PostUpdateMiscEffects is needed.
 		public override bool PreModifyLuck(ref float luck)
 		{
 			if (Player.whoAmI == Main.myPlayer)

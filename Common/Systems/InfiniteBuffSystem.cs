@@ -1,10 +1,8 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
-using MonoMod.RuntimeDetour;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using Terraria;
 using Terraria.GameContent;
 using Terraria.ID;
@@ -53,9 +51,7 @@ namespace YarnResearch.Common.Systems
 		// *items* are toggled on. The shared BuffID.MonsterBanner buff itself goes through the normal
 		// SetInfinite/TimeLeftDoesNotDecrease path (granted once, when the set goes from empty to non-empty)
 		// rather than relying on vanilla's own tick-based re-granting from the forced proximity flags below -
-		// relying on vanilla's granting caused the buff to flicker on/off, since it's unconfirmed (without
-		// decompiling) whether vanilla's own grant point runs before or after the per-tick hook that forces
-		// these flags, so the forcing wasn't landing in time every tick. ForceProximityFlags below still
+		// relying on vanilla's granting caused the buff to flicker on/off. ForceProximityFlags below still
 		// forces the per-enemy damage-bonus flags every tick (that's read live at hit-time, not gated to a
 		// specific tick phase, so timing there isn't an issue).
 		private static readonly HashSet<int> ToggledBanners = new();
@@ -69,27 +65,21 @@ namespace YarnResearch.Common.Systems
 
 		private static LocalizedText _buffBarFullText;
 
-		// This tModLoader build doesn't ship a HookGen-generated `On.` reference assembly (only the plain
-		// tModLoader.dll/Libraries are referenced by tMLMod.targets), so vanilla methods are hooked directly
-		// via MonoMod.RuntimeDetour.Hook instead of the `On.Namespace.Method +=` convention.
-		private static Hook _delBuffHook;
-		private static Hook _drawItemIconHook;
-
-		private delegate float OrigDrawItemIcon(Item item, int context, SpriteBatch spriteBatch, Vector2 screenPositionForItemCenter, float scale, float sizeLimit, Color environmentColor, float itemFade, bool flip);
+		private static On_Player.hook_DelBuff _delBuffHook;
+		private static On_ItemSlot.hook_DrawItemIcon _drawItemIconHook;
 
 		public override void Load()
 		{
 			ToggleInfiniteBuffKeybind = KeybindLoader.RegisterKeybind(Mod, "ToggleInfiniteBuff", "Mouse3");
 			_buffBarFullText = Mod.GetLocalization($"{nameof(InfiniteBuffSystem)}.BuffBarFull");
 
-			_delBuffHook = new Hook(
-				typeof(Player).GetMethod(nameof(Player.DelBuff), BindingFlags.Public | BindingFlags.Instance, [typeof(int)]),
-				(Action<Player, int> orig, Player self, int b) => {
-					if (self.whoAmI == Main.myPlayer)
-						HandleDismiss(self.buffType[b]);
+			_delBuffHook = (On_Player.orig_DelBuff orig, Player self, int b) => {
+				if (self.whoAmI == Main.myPlayer)
+					HandleDismiss(self.buffType[b]);
 
-					orig(self, b);
-				});
+				orig(self, b);
+			};
+			On_Player.DelBuff += _delBuffHook;
 
 			// Draws a tinted slot-background texture behind items shown as infinite-toggled in the Journey
 			// Mode Duplication panel (ItemSlot.Context.CreativeInfinite) - scoped to that one context
@@ -100,23 +90,28 @@ namespace YarnResearch.Common.Systems
 			// TextureAssets.InventoryBack* directly with an arbitrary Color tint via SpriteBatch.Draw,
 			// centered/scaled by hand) confirmed via AutoTrash's own ItemSlot.cs, one of the mods the
 			// tModLoader wiki's Open-Source-Mods page names as citable reference material.
-			_drawItemIconHook = new Hook(
-				typeof(ItemSlot).GetMethod(nameof(ItemSlot.DrawItemIcon), BindingFlags.Public | BindingFlags.Static),
-				(OrigDrawItemIcon orig, Item item, int context, SpriteBatch spriteBatch, Vector2 screenPositionForItemCenter, float scale, float sizeLimit, Color environmentColor, float itemFade, bool flip) => {
-					if (context == ItemSlot.Context.CreativeInfinite && IsItemInfinite(item))
-						DrawInfiniteBackground(spriteBatch, screenPositionForItemCenter, sizeLimit * scale);
+			_drawItemIconHook = (On_ItemSlot.orig_DrawItemIcon orig, Item item, int context, SpriteBatch spriteBatch, Vector2 screenPositionForItemCenter, float scale, float sizeLimit, Color environmentColor, float itemFade, bool flip) => {
+				if (context == ItemSlot.Context.CreativeInfinite && IsItemInfinite(item))
+					DrawInfiniteBackground(spriteBatch, screenPositionForItemCenter, sizeLimit * scale);
 
-					return orig(item, context, spriteBatch, screenPositionForItemCenter, scale, sizeLimit, environmentColor, itemFade, flip);
-				});
+				return orig(item, context, spriteBatch, screenPositionForItemCenter, scale, sizeLimit, environmentColor, itemFade, flip);
+			};
+			On_ItemSlot.DrawItemIcon += _drawItemIconHook;
 		}
 
 		public override void Unload()
 		{
 			ToggleInfiniteBuffKeybind = null;
-			_delBuffHook?.Dispose();
-			_delBuffHook = null;
-			_drawItemIconHook?.Dispose();
-			_drawItemIconHook = null;
+
+			if (_delBuffHook != null) {
+				On_Player.DelBuff -= _delBuffHook;
+				_delBuffHook = null;
+			}
+
+			if (_drawItemIconHook != null) {
+				On_ItemSlot.DrawItemIcon -= _drawItemIconHook;
+				_drawItemIconHook = null;
+			}
 		}
 
 		private static readonly Color InfiniteHighlightColor = new(255, 140, 0);
