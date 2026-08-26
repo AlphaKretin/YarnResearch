@@ -37,8 +37,13 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 		private ItemIconButton _toggleButton;
 		private UIPanel _actionsContainer;
 		private ItemIconButton _shimmerButton;
+		private ItemIconButton _sacrificeButton;
+		private ItemIconButton _clearButton;
 		private bool _panelOpen;
 		private bool _shimmerButtonShown;
+
+		private readonly ConfirmGuard _sacrificeGuard = new();
+		private readonly ConfirmGuard _clearGuard = new();
 
 		public override void OnInitialize()
 		{
@@ -70,29 +75,63 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 			// just the middle ones.
 			_actionsContainer = new UIPanel();
 			_actionsContainer.SetPadding(0);
-			SetRectangle(_actionsContainer, containerLeft, popupTop, containerWidth, buttonSize * 3f + padding * 4f);
+			_actionsContainer.Left.Set(containerLeft, 0f);
+			_actionsContainer.Top.Set(popupTop, 0f);
 
-			var heldItemsButton = new ItemIconButton(GetResearchGearIcon(), "Research Held Items");
-			SetRectangle(heldItemsButton, padding, padding, buttonSize, buttonSize);
+			var heldItemsButton = new ItemIconButton(GetItemIcon(ItemID.Binoculars), "Research Held Items");
+			SetSlotRectangle(heldItemsButton, 0, buttonSize, padding);
 			heldItemsButton.OnLeftClick += HeldItemsClicked;
 			_actionsContainer.Append(heldItemsButton);
 
 			var cascadeButton = new ItemIconButton(GetItemIcon(ItemID.WorkBench), "Research Craftable Recipes");
-			SetRectangle(cascadeButton, padding, padding * 2f + buttonSize, buttonSize, buttonSize);
+			SetSlotRectangle(cascadeButton, 1, buttonSize, padding);
 			cascadeButton.OnLeftClick += CascadeClicked;
 			_actionsContainer.Append(cascadeButton);
 
 			_shimmerButton = new ItemIconButton(GetItemIcon(ItemID.BottomlessShimmerBucket), "Research Shimmered Items");
-			SetRectangle(_shimmerButton, padding, padding * 3f + buttonSize * 2f, buttonSize, buttonSize);
+			SetSlotRectangle(_shimmerButton, 2, buttonSize, padding);
 			_shimmerButton.OnLeftClick += ShimmerClicked;
+
+			_sacrificeButton = new ItemIconButton(GetInfinitePowersIcon(), "Sacrifice Unresearched Items", sourceRect: InfinitePowersResearchGearFrame);
+			_sacrificeButton.OnLeftClick += SacrificeClicked;
+			_actionsContainer.Append(_sacrificeButton);
+
+			_clearButton = new ItemIconButton(GetTrashIcon(), "Clear Fully-Researched Items");
+			_clearButton.OnLeftClick += ClearClicked;
+			_actionsContainer.Append(_clearButton);
+
+			LayoutTrailingButtons(buttonSize, padding);
+		}
+
+		// _sacrificeButton/_clearButton's slot shifts up by one whenever the (conditionally shown)
+		// _shimmerButton is absent, so the popup never leaves a gap where a hidden button would be.
+		private void LayoutTrailingButtons(float buttonSize, float padding)
+		{
+			int slot = _shimmerButtonShown ? 3 : 2;
+			SetSlotRectangle(_sacrificeButton, slot, buttonSize, padding);
+			SetSlotRectangle(_clearButton, slot + 1, buttonSize, padding);
+
+			int visibleSlots = slot + 2;
+			_actionsContainer.Width.Set(buttonSize + padding * 2f, 0f);
+			_actionsContainer.Height.Set(buttonSize * visibleSlots + padding * (visibleSlots + 1), 0f);
+		}
+
+		// Vertically stacked slots within _actionsContainer, slot 0 at the top - Top = padding*(slot+1) +
+		// buttonSize*slot, matching the container's own height formula of buttonSize*n + padding*(n+1)
+		// for n visible slots.
+		private static void SetSlotRectangle(UIElement element, int slot, float buttonSize, float padding)
+		{
+			SetRectangle(element, padding, padding * (slot + 1) + buttonSize * slot, buttonSize, buttonSize);
 		}
 
 		public override void Update(GameTime gameTime)
 		{
-			if (!Main.playerInventory) {
+			if (!IsNormalInventoryOpen()) {
 				if (_panelOpen) {
 					_panelOpen = false;
 					RemoveChild(_actionsContainer);
+					_sacrificeGuard.Disarm();
+					_clearGuard.Disarm();
 				}
 
 				return;
@@ -104,16 +143,31 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 			if (shimmerDiscovered && !_shimmerButtonShown) {
 				_actionsContainer.Append(_shimmerButton);
 				_shimmerButtonShown = true;
+				LayoutTrailingButtons(ToUIUnits(ActionButtonSizePx), ToUIUnits(PaddingPx));
 			}
 			else if (!shimmerDiscovered && _shimmerButtonShown) {
 				_actionsContainer.RemoveChild(_shimmerButton);
 				_shimmerButtonShown = false;
+				LayoutTrailingButtons(ToUIUnits(ActionButtonSizePx), ToUIUnits(PaddingPx));
 			}
+
+			_sacrificeGuard.Update();
+			_clearGuard.Update();
+			ApplyConfirmState(_sacrificeButton, _sacrificeGuard, "Sacrifice Unresearched Items",
+				"Click again to confirm - sacrifices all unresearched items in your inventory!");
+			ApplyConfirmState(_clearButton, _clearGuard, "Clear Fully-Researched Items",
+				"Click again to confirm - destroys all fully-researched items in your inventory!");
+		}
+
+		private static void ApplyConfirmState(ItemIconButton button, ConfirmGuard guard, string normalText, string armedText)
+		{
+			button.HoverText = guard.Armed ? armedText : normalText;
+			button.IconTint = guard.Armed ? Color.OrangeRed : Color.White;
 		}
 
 		public override void Draw(SpriteBatch spriteBatch)
 		{
-			if (Main.playerInventory)
+			if (IsNormalInventoryOpen())
 				base.Draw(spriteBatch);
 		}
 
@@ -121,10 +175,14 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 		{
 			_panelOpen = !_panelOpen;
 
-			if (_panelOpen)
+			if (_panelOpen) {
 				Append(_actionsContainer);
-			else
+			}
+			else {
 				RemoveChild(_actionsContainer);
+				_sacrificeGuard.Disarm();
+				_clearGuard.Disarm();
+			}
 
 			SoundEngine.PlaySound(SoundID.MenuTick);
 		}
@@ -147,17 +205,61 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 			SoundEngine.PlaySound(SoundID.MenuTick);
 		}
 
+		// The vanilla research-slot sacrifice sound (SoundID.Research, variants 1-3, randomly picked per
+		// play via LimitsArePerVariant - confirmed via SoundID.TML.cs; distinct from SoundID.ResearchComplete
+		// which is variant 0, the "fully researched" fanfare FlushNotifications already plays).
+		//
+		// No named SoundID exists for the inventory trash-slot sound (that interaction is unmodified
+		// vanilla code, not present in the public patch-only repo) - built directly from the underlying
+		// asset path instead, matching the two extracted variants Custom/trash_item_0 and _1.
+		private static readonly SoundStyle TrashSound = new("Terraria/Sounds/Custom/trash_item_", 0, 2) { LimitsArePerVariant = true };
+
+		// Both bulk buttons are destructive/irreversible, so the first click only arms a short confirm
+		// window (see ConfirmGuard) - the actual action only fires on a second click within that window.
+		private void SacrificeClicked(UIMouseEvent evt, UIElement listeningElement)
+		{
+			if (_sacrificeGuard.Click()) {
+				if (YarnResearchPlayer.BulkSacrificeUnresearched())
+					SoundEngine.PlaySound(SoundID.Research);
+			}
+			else {
+				SoundEngine.PlaySound(SoundID.MenuTick);
+			}
+		}
+
+		private void ClearClicked(UIMouseEvent evt, UIElement listeningElement)
+		{
+			if (_clearGuard.Click()) {
+				if (YarnResearchPlayer.BulkClearResearched())
+					SoundEngine.PlaySound(TrashSound);
+			}
+			else {
+				SoundEngine.PlaySound(SoundID.MenuTick);
+			}
+		}
+
 		private static Asset<Texture2D> GetItemIcon(int itemType)
 		{
 			Main.instance.LoadItem(itemType);
 			return TextureAssets.Item[itemType];
 		}
 
-		// The vanilla Journey Mode powers menu's own research-toggle icon, at Content/Images/UI/Creative/
-		// Research_GearA.xnb - confirmed live in-game. B and C are alternate variants, not fallbacks.
-		private static Asset<Texture2D> GetResearchGearIcon()
+		// The vanilla Journey Mode powers menu's own research-gear icon lives in a 21-frame, 36x36-per-frame
+		// spritesheet at Content/Images/UI/Creative/Infinite_Powers.xnb, frame index 1 (confirmed by
+		// extracting and visually inspecting the actual asset - an earlier guess, Research_GearA, looked
+		// close but turned out to be a different UI element entirely).
+		private static readonly Rectangle InfinitePowersResearchGearFrame = new(36, 0, 36, 36);
+
+		private static Asset<Texture2D> GetInfinitePowersIcon()
 		{
-			return ModContent.Request<Texture2D>("Terraria/Images/UI/Creative/Research_GearA", AssetRequestMode.ImmediateLoad);
+			return ModContent.Request<Texture2D>("Terraria/Images/UI/Creative/Infinite_Powers", AssetRequestMode.ImmediateLoad);
+		}
+
+		// The inventory trash-slot icon, at Content/Images/Trash.xnb - not to be confused with
+		// UI/ButtonDelete.xnb, which is the (differently-sized) player/world select menu's delete icon.
+		private static Asset<Texture2D> GetTrashIcon()
+		{
+			return ModContent.Request<Texture2D>("Terraria/Images/Trash", AssetRequestMode.ImmediateLoad);
 		}
 
 		// Optional custom asset (not yet created) for a hover border that hugs the Unlucky Yarn icon's
@@ -170,6 +272,16 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 			return asset;
 		}
 
+		// Main.playerInventory alone is also true while a chest/other container, or an NPC shop, is open
+		// alongside the inventory (the toggle was overlapping the first chest slot) - the vanilla Journey
+		// Mode button only shows for a plain inventory-only view, so this adds those same exclusions.
+		// Player.chest is the index into Main.chest for a real chest, or one of several negative sentinel
+		// values for other storage (piggy bank, safe, Defender's Forge, void vault, etc.) - -1 means none
+		// of those are open. Main.npcShop is 0 when no shop panel is open (shops are otherwise 1-indexed).
+		// The shop half is untested live (no merchant NPC on the current test worlds yet) but included
+		// anyway rather than left out, since the chest case already showed this exact failure mode.
+		private static bool IsNormalInventoryOpen() => Main.playerInventory && Main.LocalPlayer.chest == -1 && Main.npcShop == 0;
+
 		// Converts a screen-pixel measurement (e.g. taken from a screenshot) into the logical UI-layer
 		// units this UIState's coordinates are in - the InterfaceScaleType.UI layer this draws into
 		// multiplies those units by Main.UIScale at render time, same as vanilla's own icon layer.
@@ -181,6 +293,38 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 			element.Top.Set(top, 0f);
 			element.Width.Set(width, 0f);
 			element.Height.Set(height, 0f);
+		}
+
+		// Two-click confirmation for a destructive button: the first click arms a short window (ticked
+		// down once per UI Update, i.e. once per game update while the inventory is open) instead of
+		// acting immediately; only a second click within that window returns true. Disarm() cancels an
+		// armed state early, e.g. when the popup closes.
+		private class ConfirmGuard
+		{
+			private const int ConfirmWindowTicks = 180; // ~3 seconds at 60 ticks/sec
+
+			private int _ticksRemaining;
+
+			public bool Armed => _ticksRemaining > 0;
+
+			public bool Click()
+			{
+				if (_ticksRemaining > 0) {
+					_ticksRemaining = 0;
+					return true;
+				}
+
+				_ticksRemaining = ConfirmWindowTicks;
+				return false;
+			}
+
+			public void Update()
+			{
+				if (_ticksRemaining > 0)
+					_ticksRemaining--;
+			}
+
+			public void Disarm() => _ticksRemaining = 0;
 		}
 	}
 }

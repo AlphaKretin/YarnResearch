@@ -23,16 +23,24 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 		private static readonly Color HoverBorderColor = Color.Yellow;
 
 		private readonly Asset<Texture2D> _icon;
-		private readonly string _hoverText;
+		private readonly Rectangle? _sourceRect;
 		private readonly bool _drawBackground;
 		private readonly Asset<Texture2D> _hoverBorder;
 
-		public ItemIconButton(Asset<Texture2D> icon, string hoverText, bool drawBackground = true, Asset<Texture2D> hoverBorder = null)
+		// Mutable (not constructor-only) so a caller can change the tooltip/tint at runtime, e.g. to show
+		// an "are you sure" confirmation state on a destructive action.
+		public string HoverText { get; set; }
+		public Color IconTint { get; set; } = Color.White;
+
+		// sourceRect, if given, selects one frame out of a multi-icon spritesheet (e.g. Infinite_Powers.png)
+		// instead of drawing the whole texture - use this for icons that aren't their own standalone asset.
+		public ItemIconButton(Asset<Texture2D> icon, string hoverText, bool drawBackground = true, Asset<Texture2D> hoverBorder = null, Rectangle? sourceRect = null)
 		{
 			_icon = icon;
-			_hoverText = hoverText;
+			HoverText = hoverText;
 			_drawBackground = drawBackground;
 			_hoverBorder = hoverBorder;
+			_sourceRect = sourceRect;
 			SetPadding(0);
 		}
 
@@ -44,16 +52,18 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 			Texture2D texture = _icon.Value;
 			CalculatedStyle dimensions = GetDimensions();
 
-			float scale = MathHelper.Min((dimensions.Width - 8f) / texture.Width, (dimensions.Height - 8f) / texture.Height);
+			Rectangle sourceRect = _sourceRect ?? texture.Bounds;
+
+			float scale = MathHelper.Min((dimensions.Width - 8f) / sourceRect.Width, (dimensions.Height - 8f) / sourceRect.Height);
 			scale = MathHelper.Min(scale, 1f);
 
-			var origin = new Vector2(texture.Width, texture.Height) / 2f;
+			var origin = new Vector2(sourceRect.Width, sourceRect.Height) / 2f;
 			// Round to a whole pixel - drawing pixel art at a fractional position makes the point-clamp
 			// sampler blend unevenly between texels, which reads as jagged/uneven edges.
 			var center = new Vector2(
 				(int)(dimensions.X + dimensions.Width / 2f),
 				(int)(dimensions.Y + dimensions.Height / 2f));
-			spriteBatch.Draw(texture, center, null, Color.White, 0f, origin, scale, SpriteEffects.None, 0f);
+			spriteBatch.Draw(texture, center, sourceRect, IconTint, 0f, origin, scale, SpriteEffects.None, 0f);
 
 			if (IsMouseHovering) {
 				if (_hoverBorder != null)
@@ -61,7 +71,7 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 				else
 					DrawPlaceholderHoverBorder(spriteBatch, dimensions);
 
-				UICommon.TooltipMouseText(_hoverText);
+				UICommon.TooltipMouseText(HoverText);
 			}
 		}
 

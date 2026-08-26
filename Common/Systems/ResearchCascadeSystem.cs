@@ -22,6 +22,17 @@ namespace YarnResearch.Common.Systems
 		private static readonly Dictionary<int, List<int>> RecipesConsumingItem = new();
 		private static readonly Dictionary<int, List<int>> StationItemTypesByTile = new();
 
+		// Reverse of the above two: recipe.requiredTile -> recipe indices needing that tile as a station.
+		// Needed because a recipe only ever gets (re-)checked when one of its *ingredients* is newly
+		// researched (via RecipesConsumingItem) - a station becoming newly available on its own never
+		// triggered a recheck, so a recipe whose ingredients were already satisfied earlier (station not
+		// yet known at that moment) could stay permanently unchecked for the rest of that cascade, only
+		// getting picked up later by a full re-scan (e.g. clicking the manual cascade button again).
+		// Confirmed live: a single shimmer-triggered cascade unlocked both Iron and Lead ore/bars but
+		// missed a bar-and-anvil recipe; a manual "Research Craftable Recipes" click found it immediately
+		// after, since it re-checks every already-researched item from scratch rather than only deltas.
+		private static readonly Dictionary<int, List<int>> RecipesRequiringTile = new();
+
 		// Direct Shimmer transmute table (ItemID.Sets.ShimmerTransformToItem), input type -> output type.
 		// Built once since this is static game data. Decraft outputs are looked up dynamically instead
 		// (see ProcessShimmerOutputs) since RecipeLoader.DecraftAvailable depends on live Conditions
@@ -43,10 +54,24 @@ namespace YarnResearch.Common.Systems
 		// as PendingHeldOrigins but for crate-content unlocks.
 		private static readonly HashSet<int> PendingCrateOrigins = new();
 
+		// Populated by YarnResearchPlayer.BulkSacrificeUnresearched just before a stack finishes
+		// researching via Main.CreativeMenu.SacrificeItem, same purpose as PendingHeldOrigins but for the
+		// bulk-sacrifice manual trigger (which, unlike held-item research, actually consumes the stack).
+		private static readonly HashSet<int> PendingSacrificeOrigins = new();
+
+		// Populated by ProcessCraftableOutputs just before it calls CreativeUI.ResearchItem, same purpose
+		// as PendingHeldOrigins but for recipe-cascade unlocks. Needed because, unlike the other origins,
+		// this one used to be inferred from "_activeCascadeQueue != null" (i.e. running inside a
+		// DrainCascade re-entry) - which silently broke for ManualCascadeScan, which calls
+		// ProcessCraftableOutputs directly in a loop outside that re-entrant context, so its unlocks never
+		// set that flag and got no notification queue at all.
+		private static readonly HashSet<int> PendingCraftableOrigins = new();
+
 		private static readonly Queue<int> PendingHeldNotifications = new();
 		private static readonly Queue<int> PendingCraftableNotifications = new();
 		private static readonly Queue<int> PendingShimmerNotifications = new();
 		private static readonly Queue<int> PendingCrateNotifications = new();
+		private static readonly Queue<int> PendingSacrificeNotifications = new();
 
 		public static ModKeybind ResearchCrateContentsKeybind { get; private set; }
 
@@ -59,6 +84,13 @@ namespace YarnResearch.Common.Systems
 		// several distinct top-level HandleResearched calls within it share one queue/flush instead of
 		// each draining and flushing independently.
 		private static Queue<int> _batchQueue;
+
+		// Set for the duration of a manual trigger's own BeginBatch/EndBatch, so DrainCascade's recursive
+		// continuation of THAT SAME mechanism ignores its config toggle too, not just the manual trigger's
+		// own initial pass - see DrainCascade for why this matters.
+		private static bool _forceCraftableDrain;
+		private static bool _forceShimmerDrain;
+		private static bool _forceCrateDrain;
 
 		public override void Load()
 		{
@@ -99,6 +131,10 @@ namespace YarnResearch.Common.Systems
 
 		public static void ClearHeldOrigin(int type) => PendingHeldOrigins.Remove(type);
 
+		public static void RegisterSacrificeOrigin(int type) => PendingSacrificeOrigins.Add(type);
+
+		public static void ClearSacrificeOrigin(int type) => PendingSacrificeOrigins.Remove(type);
+
 		public static bool ShimmerDiscovered => _shimmerDiscovered;
 
 		// Idempotent - safe to call every tick while the player is near Shimmer. Sets the persisted
@@ -128,12 +164,14 @@ namespace YarnResearch.Common.Systems
 			var stopwatch = Stopwatch.StartNew();
 
 			BeginBatch();
+			_forceShimmerDrain = true;
 			try {
 				foreach (int type in snapshot)
 					ProcessShimmerOutputs(type);
 			}
 			finally {
 				EndBatch();
+				_forceShimmerDrain = false;
 			}
 
 			stopwatch.Stop();
@@ -185,11 +223,13 @@ namespace YarnResearch.Common.Systems
 				return;
 
 			BeginBatch();
+			_forceCrateDrain = true;
 			try {
 				ProcessCrateContents(type);
 			}
 			finally {
 				EndBatch();
+				_forceCrateDrain = false;
 			}
 		}
 
@@ -295,6 +335,8 @@ namespace YarnResearch.Common.Systems
 			bool heldOrigin = PendingHeldOrigins.Remove(type);
 			bool shimmerOrigin = PendingShimmerOrigins.Remove(type);
 			bool crateOrigin = PendingCrateOrigins.Remove(type);
+			bool sacrificeOrigin = PendingSacrificeOrigins.Remove(type);
+			bool craftableOrigin = PendingCraftableOrigins.Remove(type);
 			bool isReentrant = _activeCascadeQueue != null;
 
 			Queue<int> notificationQueue = heldOrigin
@@ -303,7 +345,11 @@ namespace YarnResearch.Common.Systems
 					? PendingShimmerNotifications
 					: crateOrigin
 						? PendingCrateNotifications
-						: isReentrant ? PendingCraftableNotifications : null;
+						: sacrificeOrigin
+							? PendingSacrificeNotifications
+							: craftableOrigin
+								? PendingCraftableNotifications
+								: null;
 
 			if (isReentrant) {
 				// The active DrainCascade loop below owns processing this type further.
@@ -335,6 +381,7 @@ namespace YarnResearch.Common.Systems
 		{
 			RecipesConsumingItem.Clear();
 			StationItemTypesByTile.Clear();
+			RecipesRequiringTile.Clear();
 			ShimmerOutputsByInput.Clear();
 
 			int[] shimmerTransforms = ItemID.Sets.ShimmerTransformToItem;
@@ -353,6 +400,15 @@ namespace YarnResearch.Common.Systems
 					}
 
 					recipeIndices.Add(i);
+				}
+
+				if (recipe.requiredTile >= 0) {
+					if (!RecipesRequiringTile.TryGetValue(recipe.requiredTile, out List<int> tileRecipeIndices)) {
+						tileRecipeIndices = new List<int>();
+						RecipesRequiringTile[recipe.requiredTile] = tileRecipeIndices;
+					}
+
+					tileRecipeIndices.Add(i);
 				}
 			}
 
@@ -394,6 +450,8 @@ namespace YarnResearch.Common.Systems
 			PendingHeldOrigins.Clear();
 			PendingShimmerOrigins.Clear();
 			PendingCrateOrigins.Clear();
+			PendingSacrificeOrigins.Clear();
+			PendingCraftableOrigins.Clear();
 
 			for (int type = 0; type < ItemLoader.ItemCount; type++) {
 				if (!ContentSamples.ItemsByType.TryGetValue(type, out Item item) || item.ResearchUnlockCount <= 0)
@@ -413,13 +471,20 @@ namespace YarnResearch.Common.Systems
 				int type = queue.Dequeue();
 				stepsProcessed++;
 
-				if (config.AutoResearchCraftable)
+				// The || _force* flags let a manual trigger's own drain fully resolve THAT mechanism's
+				// transitive chain in one call, even with its toggle off - without them, only the first
+				// layer unlocked by the manual trigger's initial pass would use the bypass; anything
+				// further downstream (found only once this drain re-queues newly-unlocked items) would
+				// silently fall back to the toggle-gated automatic behavior and get skipped, requiring
+				// several repeated manual clicks to fully converge (confirmed live: repeatedly clicking
+				// the Shimmer button kept finding new results for ~7 clicks before settling).
+				if (config.AutoResearchCraftable || _forceCraftableDrain)
 					ProcessCraftableOutputs(type);
 
-				if (config.AutoResearchShimmerOutputs && _shimmerDiscovered)
+				if ((config.AutoResearchShimmerOutputs || _forceShimmerDrain) && _shimmerDiscovered)
 					ProcessShimmerOutputs(type);
 
-				if (config.AutoResearchCrateContents && ItemID.Sets.OpenableBag[type])
+				if (config.AutoResearchCrateContents || _forceCrateDrain)
 					ProcessCrateContents(type);
 
 				if (queue.Count > maxQueueDepth)
@@ -427,24 +492,40 @@ namespace YarnResearch.Common.Systems
 			}
 		}
 
+		// type may complete a recipe two different ways: as a newly-researched ingredient (checked via
+		// RecipesConsumingItem) or as a newly-researched station item (checked via RecipesRequiringTile,
+		// keyed by the tile it places) - a recipe needs both its check paths covered, since a recipe whose
+		// ingredients were already satisfied earlier (station not yet known at that point) would otherwise
+		// never get re-checked once the station itself shows up later.
 		private static void ProcessCraftableOutputs(int type)
 		{
-			if (!RecipesConsumingItem.TryGetValue(type, out List<int> recipeIndices))
+			if (RecipesConsumingItem.TryGetValue(type, out List<int> ingredientRecipes)) {
+				foreach (int recipeIndex in ingredientRecipes)
+					TryResearchRecipeOutput(recipeIndex);
+			}
+
+			if (ContentSamples.ItemsByType.TryGetValue(type, out Item stationItem) && stationItem.createTile != -1 &&
+				RecipesRequiringTile.TryGetValue(stationItem.createTile, out List<int> stationRecipes)) {
+				foreach (int recipeIndex in stationRecipes)
+					TryResearchRecipeOutput(recipeIndex);
+			}
+		}
+
+		private static void TryResearchRecipeOutput(int recipeIndex)
+		{
+			Recipe recipe = Main.recipe[recipeIndex];
+			int outputType = recipe.createItem.type;
+
+			if (ResearchedTypes.Contains(outputType))
 				return;
 
-			foreach (int recipeIndex in recipeIndices) {
-				Recipe recipe = Main.recipe[recipeIndex];
-				int outputType = recipe.createItem.type;
+			if (!AllIngredientsResearched(recipe) || !StationResearched(recipe))
+				return;
 
-				if (ResearchedTypes.Contains(outputType))
-					continue;
-
-				if (!AllIngredientsResearched(recipe) || !StationResearched(recipe))
-					continue;
-
-				// Synchronously re-enters HandleResearched above via GlobalItem.OnResearched.
-				CreativeUI.ResearchItem(outputType);
-			}
+			PendingCraftableOrigins.Add(outputType);
+			// Synchronously re-enters HandleResearched above via GlobalItem.OnResearched.
+			CreativeUI.ResearchItem(outputType);
+			PendingCraftableOrigins.Remove(outputType);
 		}
 
 		// Catch-up pass, ignoring the AutoResearchCraftable toggle - callable directly by the manual
@@ -455,12 +536,14 @@ namespace YarnResearch.Common.Systems
 			var stopwatch = Stopwatch.StartNew();
 
 			BeginBatch();
+			_forceCraftableDrain = true;
 			try {
 				foreach (int type in snapshot)
 					ProcessCraftableOutputs(type);
 			}
 			finally {
 				EndBatch();
+				_forceCraftableDrain = false;
 			}
 
 			stopwatch.Stop();
@@ -507,7 +590,8 @@ namespace YarnResearch.Common.Systems
 		private static void FlushNotifications()
 		{
 			if (PendingHeldNotifications.Count == 0 && PendingCraftableNotifications.Count == 0 &&
-				PendingShimmerNotifications.Count == 0 && PendingCrateNotifications.Count == 0)
+				PendingShimmerNotifications.Count == 0 && PendingCrateNotifications.Count == 0 &&
+				PendingSacrificeNotifications.Count == 0)
 				return;
 
 			var config = ModContent.GetInstance<YarnResearchConfig>();
@@ -524,6 +608,9 @@ namespace YarnResearch.Common.Systems
 				if (PendingCrateNotifications.Count > 0)
 					Main.NewText($"Auto-unpacked: {BuildTagList(PendingCrateNotifications)}");
 
+				if (PendingSacrificeNotifications.Count > 0)
+					Main.NewText($"Sacrificed: {BuildTagList(PendingSacrificeNotifications)}");
+
 				SoundEngine.PlaySound(SoundID.ResearchComplete);
 			}
 
@@ -531,6 +618,7 @@ namespace YarnResearch.Common.Systems
 			PendingCraftableNotifications.Clear();
 			PendingShimmerNotifications.Clear();
 			PendingCrateNotifications.Clear();
+			PendingSacrificeNotifications.Clear();
 		}
 
 		private static string BuildTagList(Queue<int> types)
