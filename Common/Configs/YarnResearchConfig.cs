@@ -23,6 +23,9 @@ namespace YarnResearch.Common.Configs
 		[DefaultValue(true)]
 		public bool AutoResearchCrateContents;
 
+		[DefaultValue(true)]
+		public bool InfiniteResearchedBuffs;
+
 		[Header("Options")]
 		[DefaultValue(true)]
 		public bool IncludeBankAndSafeInScan;

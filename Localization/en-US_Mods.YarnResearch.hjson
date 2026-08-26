@@ -41,8 +41,22 @@ Configs: {
 			Tooltip: ""
 			Label: Auto Research Crate Contents
 		}
+
+		InfiniteResearchedBuffs: {
+			Tooltip: ""
+			Label: Infinite Researched Buffs
+		}
 	}
 }
 
-Keybinds.ResearchCrateContents.DisplayName: Research Crate Contents
-YarnResearchGlobalItem.ResearchCrateContentsHint: Press {0} to research its possible contents
+Keybinds: {
+	ResearchCrateContents.DisplayName: Research Crate Contents
+	ToggleInfiniteBuff.DisplayName: Toggle Infinite Buff
+}
+
+YarnResearchGlobalItem: {
+	ResearchCrateContentsHint: Press {0} to research its possible contents
+	ToggleInfiniteBuffHint: Press {0} to toggle its buff as infinite
+}
+
+InfiniteBuffSystem.BuffBarFull: Your buff bar is full - can't toggle this on right now

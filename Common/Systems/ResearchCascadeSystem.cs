@@ -94,7 +94,7 @@ namespace YarnResearch.Common.Systems
 
 		public override void Load()
 		{
-			ResearchCrateContentsKeybind = KeybindLoader.RegisterKeybind(Mod, "ResearchCrateContents", "OemPeriod");
+			ResearchCrateContentsKeybind = KeybindLoader.RegisterKeybind(Mod, "ResearchCrateContents", "Mouse3");
 		}
 
 		public override void Unload()
