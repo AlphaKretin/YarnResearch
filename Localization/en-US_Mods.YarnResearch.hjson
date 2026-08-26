@@ -60,3 +60,17 @@ YarnResearchGlobalItem: {
 }
 
 InfiniteBuffSystem.BuffBarFull: Your buff bar is full - can't toggle this on right now
+JourneyMenuTriggersButton.Tooltip: YARN manual research triggers
+HeldItemsActionPower.HoverText: Research Held Items
+CascadeActionPower.HoverText: Research Craftable Recipes
+ShimmerActionPower.HoverText: Research Shimmered Items
+
+SacrificeActionPower: {
+	HoverText: Sacrifice Unresearched Items
+	ArmedHoverText: Click again to confirm - sacrifices all unresearched items in your inventory!
+}
+
+ClearActionPower: {
+	HoverText: Clear Fully-Researched Items
+	ArmedHoverText: Click again to confirm - destroys all fully-researched items in your inventory!
+}

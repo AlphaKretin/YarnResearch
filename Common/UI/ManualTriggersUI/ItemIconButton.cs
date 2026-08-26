@@ -26,21 +26,30 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 		private readonly Rectangle? _sourceRect;
 		private readonly bool _drawBackground;
 		private readonly Asset<Texture2D> _hoverBorder;
+		private readonly bool _drawDropShadow;
 
 		// Mutable (not constructor-only) so a caller can change the tooltip/tint at runtime, e.g. to show
 		// an "are you sure" confirmation state on a destructive action.
 		public string HoverText { get; set; }
 		public Color IconTint { get; set; } = Color.White;
 
+		private static readonly Vector2 DropShadowOffset = new(2f, 2f);
+		private static readonly Color DropShadowColor = new(0, 0, 0, 150);
+
 		// sourceRect, if given, selects one frame out of a multi-icon spritesheet (e.g. Infinite_Powers.png)
 		// instead of drawing the whole texture - use this for icons that aren't their own standalone asset.
-		public ItemIconButton(Asset<Texture2D> icon, string hoverText, bool drawBackground = true, Asset<Texture2D> hoverBorder = null, Rectangle? sourceRect = null)
+		//
+		// drawDropShadow draws a second, offset dark copy of the icon underneath - vanilla's own power
+		// icons bake a drop shadow into the image itself, so this is only needed for an icon (like
+		// Unlucky Yarn's item sprite) that doesn't already have one baked in.
+		public ItemIconButton(Asset<Texture2D> icon, string hoverText, bool drawBackground = true, Asset<Texture2D> hoverBorder = null, Rectangle? sourceRect = null, bool drawDropShadow = false)
 		{
 			_icon = icon;
 			HoverText = hoverText;
 			_drawBackground = drawBackground;
 			_hoverBorder = hoverBorder;
 			_sourceRect = sourceRect;
+			_drawDropShadow = drawDropShadow;
 			SetPadding(0);
 		}
 
@@ -54,7 +63,10 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 
 			Rectangle sourceRect = _sourceRect ?? texture.Bounds;
 
-			float scale = MathHelper.Min((dimensions.Width - 8f) / sourceRect.Width, (dimensions.Height - 8f) / sourceRect.Height);
+			// The 8px inset reserves room for a slot border, so only applies when a background is
+			// actually drawn - a bare icon (no background) should fill its full bounds instead.
+			float inset = _drawBackground ? 8f : 0f;
+			float scale = MathHelper.Min((dimensions.Width - inset) / sourceRect.Width, (dimensions.Height - inset) / sourceRect.Height);
 			scale = MathHelper.Min(scale, 1f);
 
 			var origin = new Vector2(sourceRect.Width, sourceRect.Height) / 2f;
@@ -63,6 +75,10 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 			var center = new Vector2(
 				(int)(dimensions.X + dimensions.Width / 2f),
 				(int)(dimensions.Y + dimensions.Height / 2f));
+
+			if (_drawDropShadow)
+				spriteBatch.Draw(texture, center + DropShadowOffset, sourceRect, DropShadowColor, 0f, origin, scale, SpriteEffects.None, 0f);
+
 			spriteBatch.Draw(texture, center, sourceRect, IconTint, 0f, origin, scale, SpriteEffects.None, 0f);
 
 			if (IsMouseHovering) {

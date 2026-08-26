@@ -60,11 +60,10 @@ namespace YarnResearch.Common.Systems
 		private static readonly HashSet<int> PendingSacrificeOrigins = new();
 
 		// Populated by ProcessCraftableOutputs just before it calls CreativeUI.ResearchItem, same purpose
-		// as PendingHeldOrigins but for recipe-cascade unlocks. Needed because, unlike the other origins,
-		// this one used to be inferred from "_activeCascadeQueue != null" (i.e. running inside a
-		// DrainCascade re-entry) - which silently broke for ManualCascadeScan, which calls
-		// ProcessCraftableOutputs directly in a loop outside that re-entrant context, so its unlocks never
-		// set that flag and got no notification queue at all.
+		// as PendingHeldOrigins but for recipe-cascade unlocks. Can't be inferred from
+		// "_activeCascadeQueue != null" (i.e. running inside a DrainCascade re-entry), since
+		// ManualCascadeScan calls ProcessCraftableOutputs directly in a loop outside that re-entrant
+		// context.
 		private static readonly HashSet<int> PendingCraftableOrigins = new();
 
 		private static readonly Queue<int> PendingHeldNotifications = new();
