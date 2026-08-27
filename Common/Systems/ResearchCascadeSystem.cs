@@ -117,6 +117,12 @@ namespace YarnResearch.Common.Systems
 		// true.
 		private static readonly Dictionary<Condition, bool> LiveConditionWasMet = new();
 
+		// Recipe indices gated by Recipe.needTorchGodsFavor (see TorchGodsFavorSatisfied below) - tracked
+		// separately from RecipesRequiringCondition since this gate isn't a Condition at all. Watched the
+		// same way: a false->true transition on Player.unlockedBiomeTorches rechecks every recipe here.
+		private static readonly List<int> RecipesRequiringTorchGodsFavor = new();
+		private static bool _torchGodsFavorWasUnlocked;
+
 		private static Dictionary<int, List<Condition>> BuildConditionsByProxyItemType()
 		{
 			var result = new Dictionary<int, List<Condition>>();
@@ -247,7 +253,8 @@ namespace YarnResearch.Common.Systems
 		// needs to survive autopause for keybind/UI purposes, not for this).
 		public static void CheckLiveConditionEdges()
 		{
-			if (RecipesRequiringCondition.Count == 0 && RecipesRequiringTile.Count == 0)
+			if (RecipesRequiringCondition.Count == 0 && RecipesRequiringTile.Count == 0 &&
+				RecipesRequiringTorchGodsFavor.Count == 0)
 				return;
 
 			var config = ModContent.GetInstance<YarnResearchConfig>();
@@ -281,6 +288,11 @@ namespace YarnResearch.Common.Systems
 				Main.LocalPlayer.adjTile[TileID.DemonAltar]) {
 				_everNearAltar = true;
 				(recipesToRecheck ??= new List<int>()).AddRange(altarRecipeIndices);
+			}
+
+			if (!_torchGodsFavorWasUnlocked && Main.LocalPlayer.unlockedBiomeTorches) {
+				_torchGodsFavorWasUnlocked = true;
+				(recipesToRecheck ??= new List<int>()).AddRange(RecipesRequiringTorchGodsFavor);
 			}
 
 			if (recipesToRecheck == null)
@@ -471,17 +483,28 @@ namespace YarnResearch.Common.Systems
 		// full entry list (not just ActiveEntries) so conditional/currently-hidden stock is considered too,
 		// e.g. a biome-exclusive item counts once its gating Condition is researched-satisfiable even while
 		// the shop isn't showing it right now. Only NPCShop (not other AbstractNPCShop implementers) exposes
-		// the full entry list needed for this.
+		// the full entry list needed for this - TravelingMerchantShop is a special case: its actual
+		// per-visit randomized stock lives in the raw-item-id Main.travelShop array, not in any
+		// AbstractNPCShop.Entry list (its own Entries/InfoEntries are unrelated fixed/info-only listings),
+		// so it's handled separately below to research only what he's currently stocking, not his full pool.
 		public static void ProcessShopEntries(AbstractNPCShop shop)
 		{
 			var config = ModContent.GetInstance<YarnResearchConfig>();
-			if (!config.AutoResearchShopStock || shop is not NPCShop npcShop)
+			if (!config.AutoResearchShopStock)
 				return;
 
 			BeginBatch();
 			try {
-				foreach (NPCShop.Entry entry in npcShop.Entries)
-					AttemptShopResearch(entry);
+				if (shop is TravelingMerchantShop) {
+					foreach (int itemType in Main.travelShop) {
+						if (itemType != 0)
+							AttemptShopResearch(itemType);
+					}
+				}
+				else if (shop is NPCShop npcShop) {
+					foreach (NPCShop.Entry entry in npcShop.Entries)
+						AttemptShopResearch(entry);
+				}
 			}
 			finally {
 				EndBatch();
@@ -499,6 +522,19 @@ namespace YarnResearch.Common.Systems
 			// Synchronously re-enters HandleResearched above via GlobalItem.OnResearched.
 			CreativeUI.ResearchItem(item.type);
 			PendingShopOrigins.Remove(item.type);
+		}
+
+		// Travelling Merchant's already-rolled stock has no Entry/Condition wrapper to check - by the time
+		// an item type lands in Main.travelShop, the RNG has already committed to selling it this visit.
+		private static void AttemptShopResearch(int itemType)
+		{
+			if (!IsUnresearchedAndResearchable(itemType) ||
+				!ContentSamples.ItemsByType.TryGetValue(itemType, out Item item) || !IsShopEntryAffordable(item))
+				return;
+
+			PendingShopOrigins.Add(itemType);
+			CreativeUI.ResearchItem(itemType);
+			PendingShopOrigins.Remove(itemType);
 		}
 
 		// Mirrors the coin math Player.CanAfford(long, int) already does (the same public method vanilla's
@@ -682,6 +718,8 @@ namespace YarnResearch.Common.Systems
 			RecipesRequiringTile.Clear();
 			RecipesRequiringCondition.Clear();
 			LiveConditionWasMet.Clear();
+			RecipesRequiringTorchGodsFavor.Clear();
+			_torchGodsFavorWasUnlocked = false;
 			ShimmerOutputsByInput.Clear();
 			_altarItemExceptionAvailable = false;
 
@@ -720,6 +758,9 @@ namespace YarnResearch.Common.Systems
 
 					conditionRecipes.Add(i);
 				}
+
+				if (NeedTorchGodsFavorField != null && (bool)NeedTorchGodsFavorField.GetValue(recipe))
+					RecipesRequiringTorchGodsFavor.Add(i);
 
 				if (recipe.createItem.createTile == TileID.DemonAltar)
 					_altarItemExceptionAvailable = true;
@@ -848,7 +889,8 @@ namespace YarnResearch.Common.Systems
 			if (ResearchedTypes.Contains(outputType))
 				return;
 
-			if (!AllIngredientsResearched(recipe) || !StationResearched(recipe) || !ConditionsSatisfiable(recipe))
+			if (!AllIngredientsResearched(recipe) || !StationResearched(recipe) || !ConditionsSatisfiable(recipe) ||
+				!TorchGodsFavorSatisfied(recipe))
 				return;
 
 			PendingCraftableOrigins.Add(outputType);
@@ -907,6 +949,25 @@ namespace YarnResearch.Common.Systems
 		}
 
 		private static bool AltarProxyDisabled() => Main.skyblockWorld || _altarItemExceptionAvailable;
+
+		// Recipe.needTorchGodsFavor (e.g. Torch God's Flavor) is a legacy internal bool field tModLoader
+		// never converts into a Condition the way it does needWater/needGraveyardBiome/etc. (confirmed via
+		// the public patches repo - PostAddRecipes's ReplaceCondition calls list every field that DOES get
+		// converted, and this isn't one of them), so recipe.Conditions has no representation of it at all -
+		// reflection is the only way to read our own runtime's copy of this vanilla flag, same justification
+		// as TryGetPlayerCarriesItemType above. Player.unlockedBiomeTorches (public) is the matching flag
+		// Torch God's Favor sets once consumed.
+		private static readonly System.Reflection.FieldInfo NeedTorchGodsFavorField =
+			typeof(Recipe).GetField("needTorchGodsFavor", System.Reflection.BindingFlags.Instance |
+				System.Reflection.BindingFlags.NonPublic);
+
+		private static bool TorchGodsFavorSatisfied(Recipe recipe)
+		{
+			if (Main.LocalPlayer.unlockedBiomeTorches)
+				return true;
+
+			return NeedTorchGodsFavorField == null || !(bool)NeedTorchGodsFavorField.GetValue(recipe);
+		}
 
 		// A live-true Condition always satisfies itself first, same as a real crafting attempt - a proxy is
 		// only consulted as a fallback when the Condition isn't actually met right now. A Condition with no

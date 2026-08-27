@@ -146,7 +146,10 @@ namespace YarnResearch.Common.Systems
 			if (item.buffType <= 0)
 				return false;
 
-			return item.potion || ItemID.Sets.IsFood[item.type];
+			// item.consumable (not item.potion) is the correct gate here: item.potion only marks items that
+			// inflict Potion Sickness, which excludes non-sickness buff potions (Builder, Flipper, Torch
+			// God's Flavor, etc.) - those still need to default-toggle like any other consumed buff item.
+			return item.consumable;
 		}
 
 		public static bool IsItemInfinite(Item item)
@@ -245,14 +248,21 @@ namespace YarnResearch.Common.Systems
 				return;
 			}
 
-			if (item.potion && item.buffType > 0) {
-				if (!InfiniteBuffTypes.ContainsKey(item.buffType))
-					SetInfinite(Main.LocalPlayer, item.buffType, on: true);
+			if (ItemID.Sets.IsFood[item.type] && item.buffType > 0) {
+				HandleFoodResearched(item.buffType);
 				return;
 			}
 
-			if (ItemID.Sets.IsFood[item.type] && item.buffType > 0)
-				HandleFoodResearched(item.buffType);
+			// item.consumable (not item.potion) is the correct gate here: item.potion only marks items that
+			// inflict Potion Sickness, which excludes non-sickness buff potions (Builder, Flipper, Torch
+			// God's Flavor, etc.) - those still need to default-toggle like any other consumed buff item.
+			if (item.consumable && item.buffType > 0) {
+				// Tipsy is vanilla's one mixed-effect buff registered as a debuff (Main.debuff[BuffID.Tipsy]
+				// = true), so right-click dismissal never works on it the way it does for other potion
+				// buffs - defaults OFF instead of the usual default-ON so it isn't stuck permanently active.
+				if (!InfiniteBuffTypes.ContainsKey(item.buffType))
+					SetInfinite(Main.LocalPlayer, item.buffType, on: item.buffType != BuffID.Tipsy);
+			}
 		}
 
 		private static void HandleFoodResearched(int buffType)
