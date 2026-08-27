@@ -19,6 +19,66 @@ namespace YarnResearch.Common.Systems
 	{
 		private static readonly HashSet<int> ResearchedTypes = new();
 
+		// Proxy signal for recipe Conditions that gate on a biome/field-effect proximity check with no
+		// requiredItem representation the cascade can otherwise see (see ConditionsSatisfiable). Each entry:
+		// researching any one of the listed items means the player can trivially recreate that proximity
+		// anywhere via Journey Mode's infinite items (a bucket, a block, gravestones), standing in for the
+		// live Condition.IsMet() check. These five are the only recipe-gating proximity Conditions vanilla
+		// has, found by surveying every legacy needXxx -> Condition rewrite in Recipe.cs.patch (2026-08-27).
+		// Condition.ZenithWorld (world-seed flag, gates Ocram's Razor) needs no entry here - it isn't a
+		// proximity check, so ConditionsSatisfiable's IsMet() fallback for unlisted Conditions already
+		// handles it correctly (permanently true or false for a given world's whole life).
+		private static readonly Dictionary<Condition, HashSet<int>> ConditionProxyItemTypes = new() {
+			[Condition.InGraveyard] = new HashSet<int> {
+				ItemID.Tombstone, ItemID.GraveMarker, ItemID.CrossGraveMarker,
+				ItemID.Headstone, ItemID.Gravestone, ItemID.Obelisk,
+				ItemID.RichGravestone1, ItemID.RichGravestone2, ItemID.RichGravestone3,
+				ItemID.RichGravestone4, ItemID.RichGravestone5,
+			},
+			[Condition.InSnow] = new HashSet<int> { ItemID.SnowBlock, ItemID.IceBlock },
+			[Condition.NearWater] = new HashSet<int> { ItemID.WaterBucket, ItemID.BottomlessBucket },
+			[Condition.NearLava] = new HashSet<int> { ItemID.LavaBucket, ItemID.BottomlessLavaBucket },
+			[Condition.NearHoney] = new HashSet<int> { ItemID.HoneyBucket, ItemID.BottomlessHoneyBucket },
+		};
+
+		// Reverse of ConditionProxyItemTypes: proxy item type -> Conditions it satisfies. Built once since
+		// ConditionProxyItemTypes is static data.
+		private static readonly Dictionary<int, List<Condition>> ConditionsByProxyItemType = BuildConditionsByProxyItemType();
+
+		// Reverse of recipe.Conditions, covering every Condition attached to any recipe (proxied or not):
+		// Condition -> recipe indices gated by it. Needed for the same reason as RecipesRequiringTile below -
+		// a recipe whose ingredients/station were already satisfied earlier must get rechecked the instant
+		// its Condition becomes satisfiable, not only on the next full manual rescan. Two independent things
+		// can make a Condition here newly satisfiable, both read this same map: a registered proxy item
+		// getting researched (ProcessCraftableOutputs, via ConditionsByProxyItemType), or the Condition's
+		// live IsMet() itself turning true (CheckLiveConditionEdges) - the latter applies even to a proxied
+		// Condition, since a player standing in the real thing right now should work exactly like it does in
+		// vanilla, with no proxy research required first.
+		private static readonly Dictionary<Condition, List<int>> RecipesRequiringCondition = new();
+
+		// Last-observed IsMet() per Condition in RecipesRequiringCondition, so CheckLiveConditionEdges can
+		// detect a false->true transition rather than re-triggering every tick the condition happens to be
+		// true.
+		private static readonly Dictionary<Condition, bool> LiveConditionWasMet = new();
+
+		private static Dictionary<int, List<Condition>> BuildConditionsByProxyItemType()
+		{
+			var result = new Dictionary<int, List<Condition>>();
+
+			foreach ((Condition condition, HashSet<int> itemTypes) in ConditionProxyItemTypes) {
+				foreach (int itemType in itemTypes) {
+					if (!result.TryGetValue(itemType, out List<Condition> conditions)) {
+						conditions = new List<Condition>();
+						result[itemType] = conditions;
+					}
+
+					conditions.Add(condition);
+				}
+			}
+
+			return result;
+		}
+
 		private static readonly Dictionary<int, List<int>> RecipesConsumingItem = new();
 		private static readonly Dictionary<int, List<int>> StationItemTypesByTile = new();
 
@@ -112,6 +172,58 @@ namespace YarnResearch.Common.Systems
 			Item hoverItem = Main.HoverItem;
 			if (!hoverItem.IsAir)
 				TryUnpackCrate(hoverItem.type);
+		}
+
+		// Watches every recipe-gating Condition (proxied or not) for a false->true transition, so a recipe
+		// blocked only by an unmet Condition gets rechecked the instant it actually becomes true (e.g. the
+		// player walks near lava) - including a proxied Condition, so meeting the real requirement naturally
+		// works even before the proxy item is ever researched, exactly like a real crafting attempt would.
+		// TryResearchRecipeOutput/ConditionsSatisfiable still re-verify everything, so this is just a trigger.
+		// Called from YarnResearchPlayer.PostUpdate, same tick as the Shimmer-discovery check - this isn't
+		// input-driven like the crate keybind above, it's a live world/biome state check, so it belongs on
+		// the same per-tick path as Shimmer discovery rather than UpdateUI (which only needs to survive
+		// autopause for keybind/UI purposes, not for this).
+		public static void CheckLiveConditionEdges()
+		{
+			if (RecipesRequiringCondition.Count == 0)
+				return;
+
+			var config = ModContent.GetInstance<YarnResearchConfig>();
+			if (!config.AutoResearchCraftable)
+				return;
+
+			// Player.adjTile/adjWaterSource/adjLava/adjHoney (what NearWater/NearLava/NearHoney read) are
+			// normally only recomputed by the crafting UI's own per-frame update, not by ordinary Player.Update
+			// - confirmed live 2026-08-27 (diagnostic log): NearWater stayed false the whole time standing in
+			// water and only flipped true the instant the inventory was opened. AdjTiles() is the public
+			// vanilla method the crafting UI itself calls to do that computation (confirmed via
+			// tModLoader.xml's doc comment on Player.adjTile, which cross-references it) - forcing it here
+			// keeps those flags fresh so the live Conditions we check reflect the player's actual position
+			// regardless of whether any menu is open.
+			Main.LocalPlayer.AdjTiles();
+
+			List<int> recipesToRecheck = null;
+
+			foreach ((Condition condition, List<int> recipeIndices) in RecipesRequiringCondition) {
+				bool isMet = condition.IsMet();
+				bool wasMet = LiveConditionWasMet.TryGetValue(condition, out bool previous) && previous;
+				LiveConditionWasMet[condition] = isMet;
+
+				if (isMet && !wasMet)
+					(recipesToRecheck ??= new List<int>()).AddRange(recipeIndices);
+			}
+
+			if (recipesToRecheck == null)
+				return;
+
+			BeginBatch();
+			try {
+				foreach (int recipeIndex in recipesToRecheck)
+					TryResearchRecipeOutput(recipeIndex);
+			}
+			finally {
+				EndBatch();
+			}
 		}
 
 		public static bool IsResearched(int type)
@@ -381,6 +493,8 @@ namespace YarnResearch.Common.Systems
 			RecipesConsumingItem.Clear();
 			StationItemTypesByTile.Clear();
 			RecipesRequiringTile.Clear();
+			RecipesRequiringCondition.Clear();
+			LiveConditionWasMet.Clear();
 			ShimmerOutputsByInput.Clear();
 
 			int[] shimmerTransforms = ItemID.Sets.ShimmerTransformToItem;
@@ -408,6 +522,15 @@ namespace YarnResearch.Common.Systems
 					}
 
 					tileRecipeIndices.Add(i);
+				}
+
+				foreach (Condition condition in recipe.Conditions) {
+					if (!RecipesRequiringCondition.TryGetValue(condition, out List<int> conditionRecipes)) {
+						conditionRecipes = new List<int>();
+						RecipesRequiringCondition[condition] = conditionRecipes;
+					}
+
+					conditionRecipes.Add(i);
 				}
 			}
 
@@ -508,6 +631,16 @@ namespace YarnResearch.Common.Systems
 				foreach (int recipeIndex in stationRecipes)
 					TryResearchRecipeOutput(recipeIndex);
 			}
+
+			if (ConditionsByProxyItemType.TryGetValue(type, out List<Condition> proxiedConditions)) {
+				foreach (Condition condition in proxiedConditions) {
+					if (!RecipesRequiringCondition.TryGetValue(condition, out List<int> conditionRecipes))
+						continue;
+
+					foreach (int recipeIndex in conditionRecipes)
+						TryResearchRecipeOutput(recipeIndex);
+				}
+			}
 		}
 
 		private static void TryResearchRecipeOutput(int recipeIndex)
@@ -518,7 +651,7 @@ namespace YarnResearch.Common.Systems
 			if (ResearchedTypes.Contains(outputType))
 				return;
 
-			if (!AllIngredientsResearched(recipe) || !StationResearched(recipe))
+			if (!AllIngredientsResearched(recipe) || !StationResearched(recipe) || !ConditionsSatisfiable(recipe))
 				return;
 
 			PendingCraftableOrigins.Add(outputType);
@@ -575,6 +708,25 @@ namespace YarnResearch.Common.Systems
 			}
 
 			return false;
+		}
+
+		// A live-true Condition always satisfies itself first, same as a real crafting attempt - a proxy is
+		// only consulted as a fallback when the Condition isn't actually met right now. A Condition with no
+		// registered proxy and no live match blocks the cascade, so an unrecognized Condition (e.g. from
+		// another mod's recipe) behaves the same way a real crafting attempt would, rather than being
+		// silently bypassed - which was the original Gravedigger's Shovel bug.
+		private static bool ConditionsSatisfiable(Recipe recipe)
+		{
+			foreach (Condition condition in recipe.Conditions) {
+				if (condition.IsMet())
+					continue;
+
+				if (!ConditionProxyItemTypes.TryGetValue(condition, out HashSet<int> proxyItemTypes) ||
+					!proxyItemTypes.Any(ResearchedTypes.Contains))
+					return false;
+			}
+
+			return true;
 		}
 
 		private static void MarkResearched(int type, Queue<int> queue, Queue<int> notificationQueue)

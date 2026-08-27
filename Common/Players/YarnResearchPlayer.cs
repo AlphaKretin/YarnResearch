@@ -27,6 +27,8 @@ namespace YarnResearch.Common.Players
 			if (Player.ZoneShimmer && ResearchCascadeSystem.MarkShimmerDiscovered() && config.AutoResearchShimmerOutputs)
 				ResearchCascadeSystem.RunShimmerCatchupScan();
 
+			ResearchCascadeSystem.CheckLiveConditionEdges();
+
 			if (config.AutoResearchHeldItems)
 				RunScan(config);
 		}
@@ -47,6 +49,16 @@ namespace YarnResearch.Common.Players
 		}
 
 		public override void OnRespawn()
+		{
+			if (Player.whoAmI == Main.myPlayer)
+				InfiniteBuffSystem.RegrantOnRespawn(Player);
+		}
+
+		// World load doesn't otherwise re-grant a toggled-on buff - LoadWorldData restores InfiniteBuffTypes'
+		// bookkeeping (the dictionary, TimeLeftDoesNotDecrease, buffNoTimeDisplay) but never calls AddBuff,
+		// so a buff toggled on in a previous session wasn't actually present until the player died and
+		// respawned once.
+		public override void OnEnterWorld()
 		{
 			if (Player.whoAmI == Main.myPlayer)
 				InfiniteBuffSystem.RegrantOnRespawn(Player);
