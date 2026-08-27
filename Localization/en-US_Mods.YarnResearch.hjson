@@ -42,6 +42,11 @@ Configs: {
 			Label: Auto Research Crate Contents
 		}
 
+		AutoResearchShopStock: {
+			Tooltip: ""
+			Label: Auto Research Shop Stock
+		}
+
 		InfiniteResearchedBuffs: {
 			Tooltip: ""
 			Label: Infinite Researched Buffs

@@ -19,15 +19,21 @@ namespace YarnResearch.Common.Systems
 	{
 		private static readonly HashSet<int> ResearchedTypes = new();
 
-		// Proxy signal for recipe Conditions that gate on a biome/field-effect proximity check with no
-		// requiredItem representation the cascade can otherwise see (see ConditionsSatisfiable). Each entry:
-		// researching any one of the listed items means the player can trivially recreate that proximity
-		// anywhere via Journey Mode's infinite items (a bucket, a block, gravestones), standing in for the
-		// live Condition.IsMet() check. These five are the only recipe-gating proximity Conditions vanilla
-		// has, found by surveying every legacy needXxx -> Condition rewrite in Recipe.cs.patch (2026-08-27).
-		// Condition.ZenithWorld (world-seed flag, gates Ocram's Razor) needs no entry here - it isn't a
-		// proximity check, so ConditionsSatisfiable's IsMet() fallback for unlisted Conditions already
-		// handles it correctly (permanently true or false for a given world's whole life).
+		// Proxy signal for any gating Condition (recipes or, since 2026-08-27, NPC shop entries - see
+		// ProcessShopEntries) that the player can trivially force/recreate on demand via some researchable
+		// item, standing in for the live Condition.IsMet() check (see
+		// ConditionsSatisfiable/ShopConditionsSatisfiable). The first five entries are the only
+		// recipe-gating proximity Conditions vanilla has (found by surveying every legacy needXxx ->
+		// Condition rewrite in Recipe.cs.patch, 2026-08-27); the rest were added for shop entries (surveyed
+		// from NPCShopDatabase.cs/Condition.cs the same day) and only ever gate shop entries in vanilla, not
+		// recipes. IMPORTANT: entries here must never apply to a Pylon shop entry, which is deliberately
+		// gated on physically visiting the correct biome, not a proxy - see IsPylonItem/ShopConditionsSatisfiable.
+		//
+		// Deliberately NOT given an entry: Condition.BiomeSpreadingItems (predicate is
+		// !Main.remixWorld || (Main.tenthAnniversaryWorld && !Main.getGoodWorld) - a world-seed flag, not
+		// about carrying any item despite the name) and other permanent world-seed/state flags for the same
+		// reason as the pre-existing ZenithWorld case: Hardmode/PreHardmode, downed-boss flags, CrimsonWorld,
+		// CorruptWorld, NotRemixWorld - all correctly handled by the IsMet() fallback alone.
 		private static readonly Dictionary<Condition, HashSet<int>> ConditionProxyItemTypes = new() {
 			[Condition.InGraveyard] = new HashSet<int> {
 				ItemID.Tombstone, ItemID.GraveMarker, ItemID.CrossGraveMarker,
@@ -39,6 +45,33 @@ namespace YarnResearch.Common.Systems
 			[Condition.NearWater] = new HashSet<int> { ItemID.WaterBucket, ItemID.BottomlessBucket },
 			[Condition.NearLava] = new HashSet<int> { ItemID.LavaBucket, ItemID.BottomlessLavaBucket },
 			[Condition.NearHoney] = new HashSet<int> { ItemID.HoneyBucket, ItemID.BottomlessHoneyBucket },
+			[Condition.InDesert] = new HashSet<int> { ItemID.SandBlock },
+			[Condition.InUnderworld] = new HashSet<int> { ItemID.AshBlock, ItemID.Hellstone },
+			[Condition.InJungle] = new HashSet<int> { ItemID.JungleGrassSeeds },
+			[Condition.InHallow] = new HashSet<int> { ItemID.PearlstoneBlock, ItemID.PinkIceBlock },
+			[Condition.InGlowshroom] = new HashSet<int> { ItemID.MushroomGrassSeeds },
+			// Sundial/Moondial force-advance to the next day/night, cycling through every time-of-day and
+			// moon-phase gate eventually - Moondial is a rarer, later-game alternative to the Sundial, but
+			// either one satisfies the same set of conditions.
+			[Condition.TimeDay] = new HashSet<int> { ItemID.Sundial, ItemID.Moondial },
+			[Condition.TimeNight] = new HashSet<int> { ItemID.Sundial, ItemID.Moondial },
+			[Condition.MoonPhasesQuarter0] = new HashSet<int> { ItemID.Sundial, ItemID.Moondial },
+			[Condition.MoonPhasesQuarter1] = new HashSet<int> { ItemID.Sundial, ItemID.Moondial },
+			[Condition.MoonPhasesQuarter2] = new HashSet<int> { ItemID.Sundial, ItemID.Moondial },
+			[Condition.MoonPhasesQuarter3] = new HashSet<int> { ItemID.Sundial, ItemID.Moondial },
+			// Bloody Tear summons a Blood Moon on demand.
+			[Condition.BloodMoon] = new HashSet<int> { ItemID.BloodMoonStarter },
+			[Condition.BloodMoonOrHardmode] = new HashSet<int> { ItemID.BloodMoonStarter },
+			// Solar Tablet summons a Solar Eclipse on demand; EclipseOrBloodMoon is satisfied by either.
+			[Condition.Eclipse] = new HashSet<int> { ItemID.SolarTablet },
+			[Condition.EclipseOrBloodMoon] = new HashSet<int> { ItemID.SolarTablet, ItemID.BloodMoonStarter },
+			[Condition.NightOrEclipse] = new HashSet<int> { ItemID.SolarTablet },
+			// Contrived, but deliberate: reaching wave 15 of the Pumpkin/Frost Moon events (summonable
+			// anytime post-Hardmode via these items) actually flips Main.halloween/Main.xMas true until the
+			// real season starts again, so these items are a genuine (if late-game) way to satisfy an
+			// otherwise-uncontrollable real-calendar-date gate.
+			[Condition.Halloween] = new HashSet<int> { ItemID.PumpkinMoonMedallion },
+			[Condition.Christmas] = new HashSet<int> { ItemID.NaughtyPresent },
 		};
 
 		// Reverse of ConditionProxyItemTypes: proxy item type -> Conditions it satisfies. Built once since
@@ -149,11 +182,16 @@ namespace YarnResearch.Common.Systems
 		// context.
 		private static readonly HashSet<int> PendingCraftableOrigins = new();
 
+		// Populated by ProcessShopEntries just before it calls CreativeUI.ResearchItem, same purpose as
+		// PendingHeldOrigins but for NPC-shop-stock unlocks.
+		private static readonly HashSet<int> PendingShopOrigins = new();
+
 		private static readonly Queue<int> PendingHeldNotifications = new();
 		private static readonly Queue<int> PendingCraftableNotifications = new();
 		private static readonly Queue<int> PendingShimmerNotifications = new();
 		private static readonly Queue<int> PendingCrateNotifications = new();
 		private static readonly Queue<int> PendingSacrificeNotifications = new();
+		private static readonly Queue<int> PendingShopNotifications = new();
 
 		public static ModKeybind ResearchCrateContentsKeybind { get; private set; }
 
@@ -428,6 +466,120 @@ namespace YarnResearch.Common.Systems
 			return ContentSamples.ItemsByType.TryGetValue(type, out Item item) && item.ResearchUnlockCount > 0;
 		}
 
+		// Called from YarnResearchGlobalNPC.ModifyActiveShop, which fires exactly when a shop UI opens for
+		// one NPC - scoped to that shop only, not a sweep of every shop in the game. Enumerates the shop's
+		// full entry list (not just ActiveEntries) so conditional/currently-hidden stock is considered too,
+		// e.g. a biome-exclusive item counts once its gating Condition is researched-satisfiable even while
+		// the shop isn't showing it right now. Only NPCShop (not other AbstractNPCShop implementers) exposes
+		// the full entry list needed for this.
+		public static void ProcessShopEntries(AbstractNPCShop shop)
+		{
+			var config = ModContent.GetInstance<YarnResearchConfig>();
+			if (!config.AutoResearchShopStock || shop is not NPCShop npcShop)
+				return;
+
+			BeginBatch();
+			try {
+				foreach (NPCShop.Entry entry in npcShop.Entries)
+					AttemptShopResearch(entry);
+			}
+			finally {
+				EndBatch();
+			}
+		}
+
+		private static void AttemptShopResearch(NPCShop.Entry entry)
+		{
+			Item item = entry.Item;
+			if (!IsUnresearchedAndResearchable(item.type) || !IsShopEntryAffordable(item) ||
+				!ShopConditionsSatisfiable(entry))
+				return;
+
+			PendingShopOrigins.Add(item.type);
+			// Synchronously re-enters HandleResearched above via GlobalItem.OnResearched.
+			CreativeUI.ResearchItem(item.type);
+			PendingShopOrigins.Remove(item.type);
+		}
+
+		// Mirrors the coin math Player.CanAfford(long, int) already does (the same public method vanilla's
+		// shop-buy click handler uses), but skips the check entirely once any coin denomination is
+		// researched - at that point the player can duplicate coins for free via Journey Mode, so price is
+		// no longer a real constraint. Only applies to ordinary coin-priced entries; a custom-currency entry
+		// (Item.shopSpecialCurrency != -1, e.g. Defender Medals) always goes through the real check.
+		private static bool IsShopEntryAffordable(Item item)
+		{
+			if (item.shopSpecialCurrency == -1 && AnyCoinResearched())
+				return true;
+
+			return Main.LocalPlayer.CanAfford(item.value, item.shopSpecialCurrency);
+		}
+
+		private static bool AnyCoinResearched() =>
+			ResearchedTypes.Contains(ItemID.CopperCoin) || ResearchedTypes.Contains(ItemID.SilverCoin) ||
+			ResearchedTypes.Contains(ItemID.GoldCoin) || ResearchedTypes.Contains(ItemID.PlatinumCoin);
+
+		// Lazily built from vanilla's own NPCShopDatabase.GetPylonEntries() - the authoritative list of sold
+		// Pylons - rather than pattern-matching each entry's Conditions, so this stays correct even if
+		// vanilla changes which Conditions gate a Pylon. Built on first use, not at PostAddRecipes time,
+		// since shop registration timing relative to recipe setup isn't guaranteed.
+		private static HashSet<int> _pylonItemTypes;
+
+		private static bool IsPylonItem(int type)
+		{
+			_pylonItemTypes ??= NPCShopDatabase.GetPylonEntries().Select(e => e.Item.type).ToHashSet();
+			return _pylonItemTypes.Contains(type);
+		}
+
+		// Same shape as ConditionsSatisfiable (live IsMet() first, ConditionProxyItemTypes fallback), but for
+		// a shop entry's Conditions rather than a recipe's. Separate method since shop entries have no
+		// recipe index to key a live-edge recheck off of - shop Conditions are only (re-)evaluated at
+		// shop-open time (ProcessShopEntries), not watched continuously the way CheckLiveConditionEdges
+		// watches recipe Conditions. Pylons never get the proxy fallback - they're deliberately gated on
+		// physically visiting the correct biome, so a Pylon entry's Conditions must all be live-IsMet() to
+		// pass, same as buying one for real.
+		private static bool ShopConditionsSatisfiable(NPCShop.Entry entry)
+		{
+			bool allowProxy = !IsPylonItem(entry.Item.type);
+
+			foreach (Condition condition in entry.Conditions) {
+				if (condition.IsMet())
+					continue;
+
+				if (!allowProxy)
+					return false;
+
+				if (ConditionProxyItemTypes.TryGetValue(condition, out HashSet<int> proxyItemTypes) &&
+					proxyItemTypes.Any(ResearchedTypes.Contains))
+					continue;
+
+				if (TryGetPlayerCarriesItemType(condition) is int carriedItemType &&
+					ResearchedTypes.Contains(carriedItemType))
+					continue;
+
+				return false;
+			}
+
+			return true;
+		}
+
+		// Condition.PlayerCarriesItem(itemId) has no public property exposing itemId - it's a factory method
+		// whose Condition just captures itemId in the predicate closure. Reading the compiler-generated
+		// closure's field is the only way to recover it - this reads our own runtime's shop-condition data,
+		// not third-party code, so it isn't the kind of decompiling this project avoids elsewhere. Returns
+		// null for any Condition not shaped like a PlayerCarriesItem closure.
+		private static int? TryGetPlayerCarriesItemType(Condition condition)
+		{
+			object closure = condition.Predicate.Target;
+			if (closure == null)
+				return null;
+
+			System.Reflection.FieldInfo field = closure.GetType()
+				.GetField("itemId", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public |
+					System.Reflection.BindingFlags.NonPublic);
+
+			return field?.GetValue(closure) as int?;
+		}
+
 		public static void BeginBatch() => _batchQueue = new Queue<int>();
 
 		public static void EndBatch()
@@ -480,6 +632,7 @@ namespace YarnResearch.Common.Systems
 			bool crateOrigin = PendingCrateOrigins.Remove(type);
 			bool sacrificeOrigin = PendingSacrificeOrigins.Remove(type);
 			bool craftableOrigin = PendingCraftableOrigins.Remove(type);
+			bool shopOrigin = PendingShopOrigins.Remove(type);
 			bool isReentrant = _activeCascadeQueue != null;
 
 			Queue<int> notificationQueue = heldOrigin
@@ -492,7 +645,9 @@ namespace YarnResearch.Common.Systems
 							? PendingSacrificeNotifications
 							: craftableOrigin
 								? PendingCraftableNotifications
-								: null;
+								: shopOrigin
+									? PendingShopNotifications
+									: null;
 
 			if (isReentrant) {
 				// The active DrainCascade loop below owns processing this type further.
@@ -615,6 +770,7 @@ namespace YarnResearch.Common.Systems
 			PendingCrateOrigins.Clear();
 			PendingSacrificeOrigins.Clear();
 			PendingCraftableOrigins.Clear();
+			PendingShopOrigins.Clear();
 
 			for (int type = 0; type < ItemLoader.ItemCount; type++) {
 				if (!ContentSamples.ItemsByType.TryGetValue(type, out Item item) || item.ResearchUnlockCount <= 0)
@@ -784,7 +940,7 @@ namespace YarnResearch.Common.Systems
 		{
 			if (PendingHeldNotifications.Count == 0 && PendingCraftableNotifications.Count == 0 &&
 				PendingShimmerNotifications.Count == 0 && PendingCrateNotifications.Count == 0 &&
-				PendingSacrificeNotifications.Count == 0)
+				PendingSacrificeNotifications.Count == 0 && PendingShopNotifications.Count == 0)
 				return;
 
 			var config = ModContent.GetInstance<YarnResearchConfig>();
@@ -804,6 +960,9 @@ namespace YarnResearch.Common.Systems
 				if (PendingSacrificeNotifications.Count > 0)
 					Main.NewText($"Sacrificed: {BuildTagList(PendingSacrificeNotifications)}");
 
+				if (PendingShopNotifications.Count > 0)
+					Main.NewText($"Auto-researched from shop: {BuildTagList(PendingShopNotifications)}");
+
 				SoundEngine.PlaySound(SoundID.ResearchComplete);
 			}
 
@@ -812,6 +971,7 @@ namespace YarnResearch.Common.Systems
 			PendingShimmerNotifications.Clear();
 			PendingCrateNotifications.Clear();
 			PendingSacrificeNotifications.Clear();
+			PendingShopNotifications.Clear();
 		}
 
 		private static string BuildTagList(Queue<int> types)

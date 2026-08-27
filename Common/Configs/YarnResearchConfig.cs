@@ -24,6 +24,9 @@ namespace YarnResearch.Common.Configs
 		public bool AutoResearchCrateContents;
 
 		[DefaultValue(true)]
+		public bool AutoResearchShopStock;
+
+		[DefaultValue(true)]
 		public bool InfiniteResearchedBuffs;
 
 		[Header("Options")]
