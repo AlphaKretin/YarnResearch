@@ -32,6 +32,11 @@ Configs: {
 			Tooltip: ""
 		}
 
+		AutoResearchBiomeTorches: {
+			Tooltip: ""
+			Label: Auto Research Biome Torches
+		}
+
 		AutoResearchShimmerOutputs: {
 			Tooltip: ""
 			Label: Auto Research Shimmer Outputs

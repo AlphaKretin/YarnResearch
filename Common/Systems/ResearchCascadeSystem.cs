@@ -25,6 +25,7 @@ namespace YarnResearch.Common.Systems
 		{
 			Held,
 			Craftable,
+			BiomeTorch,
 			Shimmer,
 			Crate,
 			Sacrifice,
@@ -35,6 +36,7 @@ namespace YarnResearch.Common.Systems
 		private static readonly string[] NotificationLabels = {
 			"Auto-researched",
 			"Auto-crafted",
+			"Auto-converted",
 			"Auto-discovered",
 			"Auto-unpacked",
 			"Sacrificed",
@@ -167,6 +169,28 @@ namespace YarnResearch.Common.Systems
 		private static readonly FieldInfo NeedTorchGodsFavorField =
 			typeof(Recipe).GetField("needTorchGodsFavor", BindingFlags.Instance | BindingFlags.NonPublic);
 
+		// Every biome whose presence Torch God's Favor can convert a torch or campfire for. Held as
+		// getter/setter pairs because the enumeration in GetBiomeTorchVariants has to save, override one
+		// at a time, and restore the player's real zone state.
+		private static readonly (Func<Player, bool> Get, Action<Player, bool> Set)[] BiomeTorchZones = {
+			(p => p.ZoneJungle, (p, v) => p.ZoneJungle = v),
+			(p => p.ZoneLihzhardTemple, (p, v) => p.ZoneLihzhardTemple = v),
+			(p => p.ZoneSnow, (p, v) => p.ZoneSnow = v),
+			(p => p.ZoneDesert, (p, v) => p.ZoneDesert = v),
+			(p => p.ZoneUndergroundDesert, (p, v) => p.ZoneUndergroundDesert = v),
+			(p => p.ZoneGlowshroom, (p, v) => p.ZoneGlowshroom = v),
+			(p => p.ZoneCorrupt, (p, v) => p.ZoneCorrupt = v),
+			(p => p.ZoneCrimson, (p, v) => p.ZoneCrimson = v),
+			(p => p.ZoneHallow, (p, v) => p.ZoneHallow = v),
+			(p => p.ZoneDungeon, (p, v) => p.ZoneDungeon = v),
+			(p => p.ZoneShimmer, (p, v) => p.ZoneShimmer = v),
+			(p => p.ZoneUnderworldHeight, (p, v) => p.ZoneUnderworldHeight = v),
+		};
+
+		// Convertible torch/campfire type -> every biome variant it can become. Cached because the answer
+		// is fixed game data, while working it out costs one vanilla call per biome.
+		private static readonly Dictionary<int, int[]> BiomeTorchVariants = new();
+
 		private static readonly Dictionary<int, List<int>> RecipesConsumingItem = new();
 		private static readonly Dictionary<int, List<int>> StationItemTypesByTile = new();
 
@@ -258,56 +282,67 @@ namespace YarnResearch.Common.Systems
 		// Altar). Includes proxied Conditions, so meeting the real requirement works even before the proxy
 		// item is ever researched, exactly like a real crafting attempt would.
 		// TryResearchRecipeOutput/ConditionsSatisfiable/StationResearched still re-verify everything, so
-		// this is only a trigger. Called from YarnResearchPlayer.PostUpdate rather than UpdateUI: this is a
+		// this is only a trigger. The Torch God's Favor edge additionally drives the one-off biome-torch
+		// catch-up, since that unlock retroactively widens what an already-researched torch is worth. Called from YarnResearchPlayer.PostUpdate rather than UpdateUI: this is a
 		// live world/biome state check, not input handling that has to survive autopause.
 		public static void CheckLiveConditionEdges()
 		{
-			if (RecipesRequiringCondition.Count == 0 && RecipesRequiringTile.Count == 0 &&
-				RecipesRequiringTorchGodsFavor.Count == 0)
-				return;
-
 			var config = ModContent.GetInstance<YarnResearchConfig>();
-			if (!config.AutoResearchCraftable)
-				return;
 
-			// Player.adjTile/adjWaterSource/adjLava/adjHoney (what NearWater/NearLava/NearHoney read) are
-			// normally only recomputed by the crafting UI's own per-frame update, not by ordinary
-			// Player.Update - without this, NearWater stays false while standing in water and only flips
-			// true the instant the inventory is opened. AdjTiles() is the public vanilla method the crafting
-			// UI itself calls to do that computation; forcing it here keeps those flags fresh regardless of
-			// whether any menu is open. The altar check below reads the same freshly-computed adjTile array.
-			Main.LocalPlayer.AdjTiles();
+			bool torchGodsFavorJustUnlocked = !_torchGodsFavorWasUnlocked && Main.LocalPlayer.unlockedBiomeTorches;
+			if (torchGodsFavorJustUnlocked)
+				_torchGodsFavorWasUnlocked = true;
 
 			List<int> recipesToRecheck = null;
 
-			foreach ((Condition condition, List<int> recipeIndices) in RecipesRequiringCondition) {
-				bool isMet = condition.IsMet();
-				bool wasMet = LiveConditionWasMet.TryGetValue(condition, out bool previous) && previous;
-				LiveConditionWasMet[condition] = isMet;
+			if (config.AutoResearchCraftable && (RecipesRequiringCondition.Count > 0 ||
+				RecipesRequiringTile.Count > 0 || RecipesRequiringTorchGodsFavor.Count > 0)) {
+				// Player.adjTile/adjWaterSource/adjLava/adjHoney (what NearWater/NearLava/NearHoney read) are
+				// normally only recomputed by the crafting UI's own per-frame update, not by ordinary
+				// Player.Update - without this, NearWater stays false while standing in water and only flips
+				// true the instant the inventory is opened. AdjTiles() is the public vanilla method the crafting
+				// UI itself calls to do that computation; forcing it here keeps those flags fresh regardless of
+				// whether any menu is open. The altar check below reads the same freshly-computed adjTile array.
+				Main.LocalPlayer.AdjTiles();
 
-				if (isMet && !wasMet)
-					(recipesToRecheck ??= new List<int>()).AddRange(recipeIndices);
+				foreach ((Condition condition, List<int> recipeIndices) in RecipesRequiringCondition) {
+					bool isMet = condition.IsMet();
+					bool wasMet = LiveConditionWasMet.TryGetValue(condition, out bool previous) && previous;
+					LiveConditionWasMet[condition] = isMet;
+
+					if (isMet && !wasMet)
+						(recipesToRecheck ??= new List<int>()).AddRange(recipeIndices);
+				}
+
+				if (!_everNearAltar && !AltarProxyDisabled() &&
+					RecipesRequiringTile.TryGetValue(TileID.DemonAltar, out List<int> altarRecipeIndices) &&
+					Main.LocalPlayer.adjTile[TileID.DemonAltar]) {
+					_everNearAltar = true;
+					(recipesToRecheck ??= new List<int>()).AddRange(altarRecipeIndices);
+				}
+
+				if (torchGodsFavorJustUnlocked)
+					(recipesToRecheck ??= new List<int>()).AddRange(RecipesRequiringTorchGodsFavor);
 			}
 
-			if (!_everNearAltar && !AltarProxyDisabled() &&
-				RecipesRequiringTile.TryGetValue(TileID.DemonAltar, out List<int> altarRecipeIndices) &&
-				Main.LocalPlayer.adjTile[TileID.DemonAltar]) {
-				_everNearAltar = true;
-				(recipesToRecheck ??= new List<int>()).AddRange(altarRecipeIndices);
-			}
+			// Torches researched before the Favor was unlocked were never convertible at the time, so the
+			// unlock edge is the one moment their variants have to be swept for retroactively.
+			bool catchUpBiomeTorches = torchGodsFavorJustUnlocked && config.AutoResearchBiomeTorches;
 
-			if (!_torchGodsFavorWasUnlocked && Main.LocalPlayer.unlockedBiomeTorches) {
-				_torchGodsFavorWasUnlocked = true;
-				(recipesToRecheck ??= new List<int>()).AddRange(RecipesRequiringTorchGodsFavor);
-			}
-
-			if (recipesToRecheck == null)
+			if (recipesToRecheck == null && !catchUpBiomeTorches)
 				return;
 
 			BeginBatch();
 			try {
-				foreach (int recipeIndex in recipesToRecheck)
-					TryResearchRecipeOutput(recipeIndex);
+				if (recipesToRecheck != null) {
+					foreach (int recipeIndex in recipesToRecheck)
+						TryResearchRecipeOutput(recipeIndex);
+				}
+
+				if (catchUpBiomeTorches) {
+					foreach (int type in ResearchedTypes.ToArray())
+						ProcessBiomeTorchVariants(type);
+				}
 			}
 			finally {
 				EndBatch();
@@ -444,6 +479,63 @@ namespace YarnResearch.Common.Systems
 
 			foreach (Item output in decraftOutputs)
 				AttemptShimmerResearch(output.type);
+		}
+
+		// Torch God's Favor converts a torch or campfire into the variant matching the biome it is used in,
+		// and a placed one keeps that variant when broken - so owning any convertible torch is really
+		// owning every biome variant of it.
+		private static void ProcessBiomeTorchVariants(int type)
+		{
+			if (!Main.LocalPlayer.unlockedBiomeTorches || !(ItemID.Sets.Torches[type] || ItemID.Sets.Campfires[type]))
+				return;
+
+			foreach (int variant in GetBiomeTorchVariants(type)) {
+				if (IsUnresearchedAndResearchable(variant))
+					ResearchWithOrigin(variant, ResearchOrigin.BiomeTorch);
+			}
+		}
+
+		// Vanilla only exposes "convert this for the biome I am in right now" (Player.BiomeTorchHoldStyle),
+		// so the full mapping is read back out of it by standing the player in each convertible biome in
+		// turn. Faking the zone flags rather than hardcoding the variant list keeps this correct for
+		// whatever vanilla's conversion rules actually are, modded torches included.
+		private static int[] GetBiomeTorchVariants(int type)
+		{
+			if (BiomeTorchVariants.TryGetValue(type, out int[] cached))
+				return cached;
+
+			Player player = Main.LocalPlayer;
+			bool[] realZones = BiomeTorchZones.Select(zone => zone.Get(player)).ToArray();
+			bool realUsingBiomeTorches = player.UsingBiomeTorches;
+			var variants = new HashSet<int>();
+
+			try {
+				player.UsingBiomeTorches = true;
+
+				for (int biome = 0; biome < BiomeTorchZones.Length; biome++) {
+					for (int other = 0; other < BiomeTorchZones.Length; other++)
+						BiomeTorchZones[other].Set(player, other == biome);
+
+					int converted = player.BiomeTorchHoldStyle(type);
+					if (converted > 0 && converted != type)
+						variants.Add(converted);
+				}
+			}
+			finally {
+				for (int biome = 0; biome < BiomeTorchZones.Length; biome++)
+					BiomeTorchZones[biome].Set(player, realZones[biome]);
+
+				player.UsingBiomeTorches = realUsingBiomeTorches;
+			}
+
+			int[] result = variants.ToArray();
+			BiomeTorchVariants[type] = result;
+
+			ModContent.GetInstance<YarnResearch>().Logger.Info(
+				$"ResearchCascadeSystem biome torch variants for {ContentSamples.ItemsByType[type].Name}: " +
+				(result.Length == 0 ? "none" : string.Join(", ", result.Select(v => ContentSamples.ItemsByType[v].Name))));
+
+			return result;
 		}
 
 		private static void AttemptShimmerResearch(int outputType)
@@ -734,6 +826,7 @@ namespace YarnResearch.Common.Systems
 			RecipesRequiringCondition.Clear();
 			RecipesRequiringTorchGodsFavor.Clear();
 			ShimmerOutputsByInput.Clear();
+			BiomeTorchVariants.Clear();
 			_altarItemExceptionAvailable = false;
 
 			int[] shimmerTransforms = ItemID.Sets.ShimmerTransformToItem;
@@ -832,6 +925,9 @@ namespace YarnResearch.Common.Systems
 				// the cascade converged.
 				if (config.AutoResearchCraftable || _forcedMechanisms.HasFlag(Mechanism.Craftable))
 					ProcessCraftableOutputs(type);
+
+				if (config.AutoResearchBiomeTorches)
+					ProcessBiomeTorchVariants(type);
 
 				if ((config.AutoResearchShimmerOutputs || _forcedMechanisms.HasFlag(Mechanism.Shimmer)) && _shimmerDiscovered)
 					ProcessShimmerOutputs(type);
