@@ -120,23 +120,16 @@ namespace YarnResearch.Common.Systems
 		// ConditionProxyItemTypes is static data.
 		private static readonly Dictionary<int, List<Condition>> ConditionsByProxyItemType = BuildConditionsByProxyItemType();
 
-		// Demon and Crimson Altars share the single TileID.DemonAltar, differing only by tile frame. Altars
-		// normally exist only as world tiles - unlike the Condition proxies above there's no obtainable item
-		// form at all, so StationResearched (which otherwise needs a researched item whose createTile
-		// matches recipe.requiredTile) could never be satisfied for an altar-gated recipe.
-
-		// True if this world has a genuine placeable altar item available, in which case _everNearAltar is
-		// disabled and the player is expected to actually obtain and research the real item. Two independent
-		// sources, both checked in AltarProxyDisabled: vanilla Skyblock worlds, where the Eye of Cthulhu
-		// drops a placeable altar item if the world has none (detected via Main.skyblockWorld, since the
-		// item id exists in ContentSamples regardless of world type); and a mod recipe whose
-		// createItem.createTile is TileID.DemonAltar, computed in PostAddRecipes.
-		private static bool _altarItemExceptionAvailable;
-
-		// Persisted per-world proxy for StationResearched's altar case: once true, a recipe requiring
-		// TileID.DemonAltar is treated as satisfied from then on, standing in for a placed altar the player
-		// found in the world. See _altarItemExceptionAvailable for when this proxy is disabled instead.
-		private static bool _everNearAltar;
+		// Demon and Crimson Altars share the single TileID.DemonAltar, differing only by tile frame. A real
+		// altar is a world tile whose item form (ItemID.DemonAltar/CrimsonAltar) only drops from the Eye of
+		// Cthulhu in a world that has none; those items, and any mod equivalent, already register as
+		// stations for the tile through their own createTile.
+		//
+		// The Replica Altars are decorative in vanilla - they place their own tile and craft nothing - but
+		// they are craftable, so a researched Replica is deliberately counted as owning the real station
+		// here. That is more generous than vanilla, and intentionally so: without it an altar-gated recipe
+		// can never cascade in a world where no altar item ever drops.
+		private static readonly int[] AltarProxyItemTypes = { ItemID.DemonAltarReplica, ItemID.CrimsonAltarReplica };
 
 		// Reverse of recipe.Conditions, covering every Condition attached to any recipe (proxied or not):
 		// Condition -> recipe indices gated by it. Needed for the same reason as RecipesRequiringTile below:
@@ -295,14 +288,14 @@ namespace YarnResearch.Common.Systems
 
 			List<int> recipesToRecheck = null;
 
-			if (config.AutoResearchCraftable && (RecipesRequiringCondition.Count > 0 ||
-				RecipesRequiringTile.Count > 0 || RecipesRequiringTorchGodsFavor.Count > 0)) {
+			if (config.AutoResearchCraftable &&
+				(RecipesRequiringCondition.Count > 0 || RecipesRequiringTorchGodsFavor.Count > 0)) {
 				// Player.adjTile/adjWaterSource/adjLava/adjHoney (what NearWater/NearLava/NearHoney read) are
 				// normally only recomputed by the crafting UI's own per-frame update, not by ordinary
 				// Player.Update - without this, NearWater stays false while standing in water and only flips
 				// true the instant the inventory is opened. AdjTiles() is the public vanilla method the crafting
 				// UI itself calls to do that computation; forcing it here keeps those flags fresh regardless of
-				// whether any menu is open. The altar check below reads the same freshly-computed adjTile array.
+				// whether any menu is open.
 				Main.LocalPlayer.AdjTiles();
 
 				foreach ((Condition condition, List<int> recipeIndices) in RecipesRequiringCondition) {
@@ -312,13 +305,6 @@ namespace YarnResearch.Common.Systems
 
 					if (isMet && !wasMet)
 						(recipesToRecheck ??= new List<int>()).AddRange(recipeIndices);
-				}
-
-				if (!_everNearAltar && !AltarProxyDisabled() &&
-					RecipesRequiringTile.TryGetValue(TileID.DemonAltar, out List<int> altarRecipeIndices) &&
-					Main.LocalPlayer.adjTile[TileID.DemonAltar]) {
-					_everNearAltar = true;
-					(recipesToRecheck ??= new List<int>()).AddRange(altarRecipeIndices);
 				}
 
 				if (torchGodsFavorJustUnlocked)
@@ -367,11 +353,14 @@ namespace YarnResearch.Common.Systems
 		{
 			if (ContentSamples.ItemsByType.TryGetValue(type, out Item item) && item.createTile != -1)
 				ResearchedStationTiles.Add(item.createTile);
+
+			// A Replica places its own decorative tile, so the altar it stands in for has to be recorded
+			// explicitly - see AltarProxyItemTypes.
+			if (AltarProxyItemTypes.Contains(type))
+				ResearchedStationTiles.Add(TileID.DemonAltar);
 		}
 
 		public static IReadOnlyCollection<int> ResearchedStations => ResearchedStationTiles;
-
-		public static bool EverNearAltar => _everNearAltar;
 
 		// Every Condition attached to a real recipe (modded recipes included) - the authoritative set of
 		// craft-gating Conditions at runtime, as opposed to the shop-only ones ConditionProxyItemTypes also
@@ -827,7 +816,6 @@ namespace YarnResearch.Common.Systems
 			RecipesRequiringTorchGodsFavor.Clear();
 			ShimmerOutputsByInput.Clear();
 			BiomeTorchVariants.Clear();
-			_altarItemExceptionAvailable = false;
 
 			int[] shimmerTransforms = ItemID.Sets.ShimmerTransformToItem;
 			for (int type = 0; type < shimmerTransforms.Length; type++) {
@@ -849,9 +837,6 @@ namespace YarnResearch.Common.Systems
 
 				if (NeedTorchGodsFavorField != null && (bool)NeedTorchGodsFavorField.GetValue(recipe))
 					RecipesRequiringTorchGodsFavor.Add(i);
-
-				if (recipe.createItem.createTile == TileID.DemonAltar)
-					_altarItemExceptionAvailable = true;
 			}
 
 			for (int type = 0; type < ItemLoader.ItemCount; type++) {
@@ -860,27 +845,25 @@ namespace YarnResearch.Common.Systems
 
 				AddToIndex(StationItemTypesByTile, item.createTile, type);
 			}
+
+			foreach (int type in AltarProxyItemTypes)
+				AddToIndex(StationItemTypesByTile, TileID.DemonAltar, type);
 		}
 
 		public override void SaveWorldData(TagCompound tag)
 		{
 			if (_shimmerDiscovered)
 				tag["shimmerDiscovered"] = true;
-
-			if (_everNearAltar)
-				tag["everNearAltar"] = true;
 		}
 
 		public override void LoadWorldData(TagCompound tag)
 		{
 			_shimmerDiscovered = tag.ContainsKey("shimmerDiscovered");
-			_everNearAltar = tag.ContainsKey("everNearAltar");
 		}
 
 		public override void ClearWorld()
 		{
 			_shimmerDiscovered = false;
-			_everNearAltar = false;
 		}
 
 		public override void OnWorldLoad()
@@ -998,17 +981,9 @@ namespace YarnResearch.Common.Systems
 			if (recipe.requiredTile < 0)
 				return true;
 
-			if (StationItemTypesByTile.TryGetValue(recipe.requiredTile, out List<int> itemTypes)) {
-				foreach (int itemType in itemTypes) {
-					if (ResearchedTypes.Contains(itemType))
-						return true;
-				}
-			}
-
-			return recipe.requiredTile == TileID.DemonAltar && _everNearAltar;
+			return StationItemTypesByTile.TryGetValue(recipe.requiredTile, out List<int> itemTypes) &&
+				itemTypes.Any(ResearchedTypes.Contains);
 		}
-
-		private static bool AltarProxyDisabled() => Main.skyblockWorld || _altarItemExceptionAvailable;
 
 		private static bool TorchGodsFavorSatisfied(Recipe recipe)
 		{

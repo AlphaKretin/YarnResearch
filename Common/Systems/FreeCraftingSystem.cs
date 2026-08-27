@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Terraria;
-using Terraria.ID;
 using Terraria.ModLoader;
 using YarnResearch.Common.Players;
 
@@ -92,12 +91,6 @@ namespace YarnResearch.Common.Systems
 			try {
 				foreach (int tile in ResearchCascadeSystem.ResearchedStations)
 					FakeAdjacentTile(player, tile);
-
-				// The altar proxy has no researchable station item behind it (altars aren't obtainable
-				// normally) - it's the same "has ever been near one" flag the cascade's StationResearched
-				// falls back to.
-				if (ResearchCascadeSystem.EverNearAltar)
-					FakeAdjacentTile(player, TileID.DemonAltar);
 
 				foreach ((Condition condition, ProximityFlag flag) in ProximityConditionFakes) {
 					if (!ResearchCascadeSystem.ConditionProxyResearched(condition))
