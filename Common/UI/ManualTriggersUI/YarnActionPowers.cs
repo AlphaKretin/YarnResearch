@@ -74,6 +74,30 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 		}
 	}
 
+	// The one power here that toggles rather than acting once - see AYarnTogglePower.
+	public class FreeCraftingTogglePower : AYarnTogglePower
+	{
+		private static readonly LocalizedText HoverTextValue = ModContent.GetInstance<YarnResearch>().GetLocalization($"{nameof(FreeCraftingTogglePower)}.HoverText");
+		private static readonly LocalizedText ActiveHoverTextValue = ModContent.GetInstance<YarnResearch>().GetLocalization($"{nameof(FreeCraftingTogglePower)}.ActiveHoverText");
+
+		protected override Asset<Texture2D> Icon => GetItemIcon(ItemID.HandOfCreation);
+		public override LocalizedText HoverText => FreeCraftingSystem.Enabled ? ActiveHoverTextValue : HoverTextValue;
+
+		protected override bool IsOn => FreeCraftingSystem.Enabled;
+
+		protected override void DoAction()
+		{
+			FreeCraftingSystem.Toggle();
+			SoundEngine.PlaySound(SoundID.MenuTick);
+		}
+
+		private static Asset<Texture2D> GetItemIcon(int itemType)
+		{
+			Main.instance.LoadItem(itemType);
+			return TextureAssets.Item[itemType];
+		}
+	}
+
 	// Destructive/irreversible, so the first click only arms a short confirm window (see ConfirmGuard) -
 	// the actual action only fires on a second click within that window.
 	public class SacrificeActionPower : AYarnActionPower

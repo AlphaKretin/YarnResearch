@@ -74,6 +74,11 @@ HeldItemsActionPower.HoverText: Research Held Items
 CascadeActionPower.HoverText: Research Craftable Recipes
 ShimmerActionPower.HoverText: Research Shimmered Items
 
+FreeCraftingTogglePower: {
+	HoverText: Free Crafting - off
+	ActiveHoverText: Free Crafting - on (researched stations count as nearby)
+}
+
 SacrificeActionPower: {
 	HoverText: Sacrifice Unresearched Items
 	ArmedHoverText: Click again to confirm - sacrifices all unresearched items in your inventory!

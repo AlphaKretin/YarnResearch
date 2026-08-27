@@ -58,8 +58,15 @@ namespace YarnResearch.Common.Players
 
 		public bool HasOneShotArmedFor(int itemType) => TryPeekOneShotPrefix(itemType, out _);
 
+		// Free-crafting toggle (see FreeCraftingSystem) - a property of the character, not the world, so a
+		// player who wants it on keeps it on everywhere.
+		public bool FreeCraftingEnabled { get; set; }
+
 		public override void SaveData(TagCompound tag)
 		{
+			if (FreeCraftingEnabled)
+				tag["FreeCrafting"] = true;
+
 			if (DefaultPrefixByCategory.Count == 0)
 				return;
 
@@ -72,6 +79,8 @@ namespace YarnResearch.Common.Players
 
 		public override void LoadData(TagCompound tag)
 		{
+			FreeCraftingEnabled = tag.ContainsKey("FreeCrafting");
+
 			if (!tag.TryGet("DefaultPrefixes", out List<TagCompound> entries))
 				return;
 

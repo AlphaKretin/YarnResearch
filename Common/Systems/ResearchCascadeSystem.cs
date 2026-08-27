@@ -144,6 +144,11 @@ namespace YarnResearch.Common.Systems
 		private static readonly Dictionary<int, List<int>> RecipesConsumingItem = new();
 		private static readonly Dictionary<int, List<int>> StationItemTypesByTile = new();
 
+		// Every tile placed by an already-researched item, maintained incrementally as items are researched
+		// rather than derived from ResearchedTypes on demand - FreeCraftingSystem reads it from inside
+		// Recipe.FindRecipes, which runs on every inventory change.
+		private static readonly HashSet<int> ResearchedStationTiles = new();
+
 		// Reverse of the above two: recipe.requiredTile -> recipe indices needing that tile as a station.
 		// Needed because a recipe only ever gets (re-)checked when one of its *ingredients* is newly
 		// researched (via RecipesConsumingItem) - a station becoming newly available on its own never
@@ -314,11 +319,34 @@ namespace YarnResearch.Common.Systems
 				return true;
 
 			CreativeUI.GetSacrificeCount(type, out bool fullyResearched);
-			if (fullyResearched)
+			if (fullyResearched) {
 				ResearchedTypes.Add(type);
+				NoteStationTile(type);
+			}
 
 			return fullyResearched;
 		}
+
+		private static void NoteStationTile(int type)
+		{
+			if (ContentSamples.ItemsByType.TryGetValue(type, out Item item) && item.createTile != -1)
+				ResearchedStationTiles.Add(item.createTile);
+		}
+
+		public static IReadOnlyCollection<int> ResearchedStations => ResearchedStationTiles;
+
+		public static bool EverNearAltar => _everNearAltar;
+
+		// Every Condition attached to a real recipe (modded recipes included) - the authoritative set of
+		// craft-gating Conditions at runtime, as opposed to the shop-only ones ConditionProxyItemTypes also
+		// covers.
+		public static IEnumerable<Condition> RecipeGatingConditions => RecipesRequiringCondition.Keys;
+
+		public static bool IsConditionProxied(Condition condition) => ConditionProxyItemTypes.ContainsKey(condition);
+
+		public static bool ConditionProxyResearched(Condition condition) =>
+			ConditionProxyItemTypes.TryGetValue(condition, out HashSet<int> proxyItemTypes) &&
+			proxyItemTypes.Any(ResearchedTypes.Contains);
 
 		public static void RegisterHeldOrigin(int type) => PendingHeldOrigins.Add(type);
 
@@ -806,6 +834,7 @@ namespace YarnResearch.Common.Systems
 		public override void OnWorldLoad()
 		{
 			ResearchedTypes.Clear();
+			ResearchedStationTiles.Clear();
 			PendingHeldOrigins.Clear();
 			PendingShimmerOrigins.Clear();
 			PendingCrateOrigins.Clear();
@@ -818,8 +847,10 @@ namespace YarnResearch.Common.Systems
 					continue;
 
 				CreativeUI.GetSacrificeCount(type, out bool fullyResearched);
-				if (fullyResearched)
+				if (fullyResearched) {
 					ResearchedTypes.Add(type);
+					NoteStationTile(type);
+				}
 			}
 		}
 
@@ -992,6 +1023,8 @@ namespace YarnResearch.Common.Systems
 		{
 			if (!ResearchedTypes.Add(type))
 				return;
+
+			NoteStationTile(type);
 
 			queue.Enqueue(type);
 			notificationQueue?.Enqueue(type);
