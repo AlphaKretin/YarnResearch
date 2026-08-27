@@ -160,6 +160,9 @@ namespace YarnResearch.Common.Systems
 			if (IsBannerItem(item.type))
 				return ToggledBanners.Contains(item.type);
 
+			if (PlacedBuffItems.TryGetValue(item.type, out int placedBuffType))
+				return IsInfinite(placedBuffType);
+
 			return item.buffType > 0 && IsInfinite(item.buffType);
 		}
 
@@ -306,6 +309,12 @@ namespace YarnResearch.Common.Systems
 				return;
 			}
 
+			if (PlacedBuffItems.TryGetValue(hoverItem.type, out int placedBuffType)) {
+				bool placedCurrentlyOn = InfiniteBuffTypes.GetValueOrDefault(placedBuffType);
+				SetInfinite(Main.LocalPlayer, placedBuffType, on: !placedCurrentlyOn, isManualToggle: true);
+				return;
+			}
+
 			if (hoverItem.buffType <= 0)
 				return;
 
@@ -359,7 +368,11 @@ namespace YarnResearch.Common.Systems
 		// dismiss (see plan's "Detecting dismissal" section). BuffID.MonsterBanner is the one category-3
 		// exception: since it's actively held via TimeLeftDoesNotDecrease (not proximity-dependent) once any
 		// banner is toggled on, any DelBuff on it can only be a deliberate right-click dismiss - clears
-		// every toggled banner to match.
+		// every toggled banner to match. Confirmed live 2026-08-27: right-clicking a toggled Cozy Fire (the
+		// Campfire buff) never calls Player.DelBuff at all, even once, across several attempts - this isn't
+		// something our TimeLeftDoesNotDecrease flag is blocking, vanilla simply doesn't wire proximity/aura
+		// buffs to the right-click-dismiss UI in the first place. The mod's own toggle hotkey is therefore
+		// the only way to turn these off, which is already correct - no further fix needed or possible here.
 		public static void HandleDismiss(int buffType)
 		{
 			if (!InfiniteBuffTypes.GetValueOrDefault(buffType))
@@ -377,9 +390,9 @@ namespace YarnResearch.Common.Systems
 			Main.buffNoTimeDisplay[buffType] = false;
 		}
 
-		// Called from YarnResearchPlayer.OnRespawn - re-grants every toggled-on buffType the player doesn't
-		// currently have. Banners/Garden Gnome need no special respawn handling - ForceProximityFlags runs
-		// every tick regardless, including the tick right after respawn.
+		// Called from YarnResearchPlayer.OnRespawn and OnEnterWorld - re-grants every toggled-on buffType the
+		// player doesn't currently have. Banners/Garden Gnome need no special handling here - ForceProximityFlags
+		// runs every tick regardless, including the tick right after respawn or entering the world.
 		public static void RegrantOnRespawn(Player player)
 		{
 			foreach (var pair in InfiniteBuffTypes.ToArray()) {
