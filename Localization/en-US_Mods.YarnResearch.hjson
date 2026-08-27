@@ -57,11 +57,15 @@ Configs: {
 Keybinds: {
 	ResearchCrateContents.DisplayName: Research Crate Contents
 	ToggleInfiniteBuff.DisplayName: Toggle Infinite Buff
+	OpenPrefixPicker.DisplayName: Open Prefix Picker
 }
 
 YarnResearchGlobalItem: {
 	ResearchCrateContentsHint: Press {0} to research its possible contents
 	ToggleInfiniteBuffHint: Press {0} to toggle its buff as infinite
+	OpenPrefixPickerHint: Press {0} to choose its duplication prefix
+	PrefixPickerPopupSetDefaultHint: Left-click to set as default
+	PrefixPickerPopupDuplicateHint: Right-click to duplicate once
 }
 
 InfiniteBuffSystem.BuffBarFull: Your buff bar is full - can't toggle this on right now

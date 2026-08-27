@@ -1,7 +1,9 @@
+using System;
 using System.Collections.Generic;
 using Terraria;
 using Terraria.GameContent.Creative;
 using Terraria.ModLoader;
+using Terraria.ModLoader.IO;
 using YarnResearch.Common.Configs;
 using YarnResearch.Common.Systems;
 
@@ -16,6 +18,68 @@ namespace YarnResearch.Common.Players
 		private const int MainInventoryEnd = 50;
 
 		private readonly Dictionary<Item[], (int[] Types, int[] Stacks)> _snapshots = new();
+
+		// Persistent default prefix per PrefixCategory for the Journey duplication prefix picker - e.g.
+		// choosing "Warding" for the Accessory category applies it to every future accessory duplication.
+		public Dictionary<PrefixCategory, int> DefaultPrefixByCategory { get; } = new();
+
+		// Not saved - a one-shot forced prefix for the next duplication of a specific item type, armed by
+		// right-clicking a prefix in the picker without touching the persistent default above.
+		private (int ItemType, int PrefixId)? _pendingOneShotPrefix;
+
+		public void SetDefaultPrefix(PrefixCategory category, int prefixId) => DefaultPrefixByCategory[category] = prefixId;
+
+		public void ArmOneShotPrefix(int itemType, int prefixId) => _pendingOneShotPrefix = (itemType, prefixId);
+
+		public bool TryConsumeOneShotPrefix(int itemType, out int prefixId)
+		{
+			if (_pendingOneShotPrefix is { } pending && pending.ItemType == itemType) {
+				prefixId = pending.PrefixId;
+				_pendingOneShotPrefix = null;
+				return true;
+			}
+
+			prefixId = 0;
+			return false;
+		}
+
+		// Non-consuming check for the duplication-grid armed indicator/tooltip - see PrefixPickerSystem
+		// and YarnResearchGlobalItem's tooltip hint.
+		public bool TryPeekOneShotPrefix(int itemType, out int prefixId)
+		{
+			if (_pendingOneShotPrefix is { } pending && pending.ItemType == itemType) {
+				prefixId = pending.PrefixId;
+				return true;
+			}
+
+			prefixId = 0;
+			return false;
+		}
+
+		public bool HasOneShotArmedFor(int itemType) => TryPeekOneShotPrefix(itemType, out _);
+
+		public override void SaveData(TagCompound tag)
+		{
+			if (DefaultPrefixByCategory.Count == 0)
+				return;
+
+			var entries = new List<TagCompound>();
+			foreach (var (category, prefixId) in DefaultPrefixByCategory)
+				entries.Add(new TagCompound { ["Category"] = category.ToString(), ["Prefix"] = prefixId });
+
+			tag["DefaultPrefixes"] = entries;
+		}
+
+		public override void LoadData(TagCompound tag)
+		{
+			if (!tag.TryGet("DefaultPrefixes", out List<TagCompound> entries))
+				return;
+
+			foreach (TagCompound entry in entries) {
+				if (Enum.TryParse(entry.GetString("Category"), out PrefixCategory category))
+					DefaultPrefixByCategory[category] = entry.GetInt("Prefix");
+			}
+		}
 
 		public override void PostUpdate()
 		{

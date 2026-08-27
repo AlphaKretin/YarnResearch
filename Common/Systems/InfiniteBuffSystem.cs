@@ -184,7 +184,7 @@ namespace YarnResearch.Common.Systems
 		// this combination (Main.cs.patch: "bool flag9 = CreativeMenu.Enabled && !CreativeMenu.Blocked;").
 		// There's no further public distinction between its Research/Duplication tabs, so this scopes the
 		// hotkey to "the Journey Mode power menu is open" rather than the Duplication tab specifically.
-		private static bool IsHoveringDuplicationMenu()
+		internal static bool IsHoveringDuplicationMenu()
 		{
 			return Main.CreativeMenu.Enabled && !Main.CreativeMenu.Blocked;
 		}
