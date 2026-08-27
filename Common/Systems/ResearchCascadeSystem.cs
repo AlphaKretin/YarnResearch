@@ -45,6 +45,29 @@ namespace YarnResearch.Common.Systems
 		// ConditionProxyItemTypes is static data.
 		private static readonly Dictionary<int, List<Condition>> ConditionsByProxyItemType = BuildConditionsByProxyItemType();
 
+		// Demon and Crimson Altars share a single TileID (26, TileID.DemonAltar - confirmed against the
+		// wiki, which lists both under id 26) - they differ only by tile frame/style, not by id. Altars are
+		// normally found in the world only - unlike the Condition proxies above, there's no obtainable item
+		// form at all in a typical world, so StationResearched (which otherwise requires a researched item
+		// whose createTile matches recipe.requiredTile) can never be satisfied for an altar-gated recipe.
+
+		// True if this world has a genuine placeable altar item available, in which case _everNearAltar
+		// below is disabled and the player is expected to actually go obtain and research the real item
+		// instead of relying on the proxy. Two independent sources, both checked live in
+		// AltarProxyDisabled: vanilla Skyblock worlds, where the Eye of Cthulhu drops a placeable
+		// Demon/Crimson Altar item (ItemID 5532/5533) if no altars exist in the world - not a recipe, so
+		// detected via Main.skyblockWorld instead (the item id always exists in ContentSamples regardless
+		// of world type, so presence-checking the id itself would be a false positive in a normal world);
+		// and a mod recipe whose createItem.createTile is TileID.DemonAltar (e.g. the "Craftable Altars"
+		// Workshop mod), computed below in PostAddRecipes.
+		private static bool _altarItemExceptionAvailable;
+
+		// Persisted per-world proxy for StationResearched's altar case: once true, a recipe requiring
+		// TileID.DemonAltar as its station is treated as satisfied from then on, standing in for a placed
+		// altar the player found in the world - same shape as _shimmerDiscovered's persisted flag. See
+		// _altarItemExceptionAvailable for when this proxy is disabled instead.
+		private static bool _everNearAltar;
+
 		// Reverse of recipe.Conditions, covering every Condition attached to any recipe (proxied or not):
 		// Condition -> recipe indices gated by it. Needed for the same reason as RecipesRequiringTile below -
 		// a recipe whose ingredients/station were already satisfied earlier must get rechecked the instant
@@ -174,18 +197,19 @@ namespace YarnResearch.Common.Systems
 				TryUnpackCrate(hoverItem.type);
 		}
 
-		// Watches every recipe-gating Condition (proxied or not) for a false->true transition, so a recipe
-		// blocked only by an unmet Condition gets rechecked the instant it actually becomes true (e.g. the
-		// player walks near lava) - including a proxied Condition, so meeting the real requirement naturally
+		// Watches every recipe-gating Condition (proxied or not), plus the altar tile-station proxy below,
+		// for a false->true transition, so a recipe blocked only by an unmet Condition or an unvisited
+		// altar gets rechecked the instant it actually becomes true (e.g. the player walks near lava, or
+		// finds a Demon Altar) - including a proxied Condition, so meeting the real requirement naturally
 		// works even before the proxy item is ever researched, exactly like a real crafting attempt would.
-		// TryResearchRecipeOutput/ConditionsSatisfiable still re-verify everything, so this is just a trigger.
-		// Called from YarnResearchPlayer.PostUpdate, same tick as the Shimmer-discovery check - this isn't
-		// input-driven like the crate keybind above, it's a live world/biome state check, so it belongs on
-		// the same per-tick path as Shimmer discovery rather than UpdateUI (which only needs to survive
-		// autopause for keybind/UI purposes, not for this).
+		// TryResearchRecipeOutput/ConditionsSatisfiable/StationResearched still re-verify everything, so this
+		// is just a trigger. Called from YarnResearchPlayer.PostUpdate, same tick as the Shimmer-discovery
+		// check - this isn't input-driven like the crate keybind above, it's a live world/biome state check,
+		// so it belongs on the same per-tick path as Shimmer discovery rather than UpdateUI (which only
+		// needs to survive autopause for keybind/UI purposes, not for this).
 		public static void CheckLiveConditionEdges()
 		{
-			if (RecipesRequiringCondition.Count == 0)
+			if (RecipesRequiringCondition.Count == 0 && RecipesRequiringTile.Count == 0)
 				return;
 
 			var config = ModContent.GetInstance<YarnResearchConfig>();
@@ -199,7 +223,8 @@ namespace YarnResearch.Common.Systems
 			// vanilla method the crafting UI itself calls to do that computation (confirmed via
 			// tModLoader.xml's doc comment on Player.adjTile, which cross-references it) - forcing it here
 			// keeps those flags fresh so the live Conditions we check reflect the player's actual position
-			// regardless of whether any menu is open.
+			// regardless of whether any menu is open. The altar loop below reads the same freshly-computed
+			// adjTile array.
 			Main.LocalPlayer.AdjTiles();
 
 			List<int> recipesToRecheck = null;
@@ -211,6 +236,13 @@ namespace YarnResearch.Common.Systems
 
 				if (isMet && !wasMet)
 					(recipesToRecheck ??= new List<int>()).AddRange(recipeIndices);
+			}
+
+			if (!_everNearAltar && !AltarProxyDisabled() &&
+				RecipesRequiringTile.TryGetValue(TileID.DemonAltar, out List<int> altarRecipeIndices) &&
+				Main.LocalPlayer.adjTile[TileID.DemonAltar]) {
+				_everNearAltar = true;
+				(recipesToRecheck ??= new List<int>()).AddRange(altarRecipeIndices);
 			}
 
 			if (recipesToRecheck == null)
@@ -496,6 +528,7 @@ namespace YarnResearch.Common.Systems
 			RecipesRequiringCondition.Clear();
 			LiveConditionWasMet.Clear();
 			ShimmerOutputsByInput.Clear();
+			_altarItemExceptionAvailable = false;
 
 			int[] shimmerTransforms = ItemID.Sets.ShimmerTransformToItem;
 			for (int type = 0; type < shimmerTransforms.Length; type++) {
@@ -532,6 +565,9 @@ namespace YarnResearch.Common.Systems
 
 					conditionRecipes.Add(i);
 				}
+
+				if (recipe.createItem.createTile == TileID.DemonAltar)
+					_altarItemExceptionAvailable = true;
 			}
 
 			for (int type = 0; type < ItemLoader.ItemCount; type++) {
@@ -554,16 +590,21 @@ namespace YarnResearch.Common.Systems
 		{
 			if (_shimmerDiscovered)
 				tag["shimmerDiscovered"] = true;
+
+			if (_everNearAltar)
+				tag["everNearAltar"] = true;
 		}
 
 		public override void LoadWorldData(TagCompound tag)
 		{
 			_shimmerDiscovered = tag.ContainsKey("shimmerDiscovered");
+			_everNearAltar = tag.ContainsKey("everNearAltar");
 		}
 
 		public override void ClearWorld()
 		{
 			_shimmerDiscovered = false;
+			_everNearAltar = false;
 		}
 
 		public override void OnWorldLoad()
@@ -699,16 +740,17 @@ namespace YarnResearch.Common.Systems
 			if (recipe.requiredTile < 0)
 				return true;
 
-			if (!StationItemTypesByTile.TryGetValue(recipe.requiredTile, out List<int> itemTypes))
-				return false;
-
-			foreach (int itemType in itemTypes) {
-				if (ResearchedTypes.Contains(itemType))
-					return true;
+			if (StationItemTypesByTile.TryGetValue(recipe.requiredTile, out List<int> itemTypes)) {
+				foreach (int itemType in itemTypes) {
+					if (ResearchedTypes.Contains(itemType))
+						return true;
+				}
 			}
 
-			return false;
+			return recipe.requiredTile == TileID.DemonAltar && _everNearAltar;
 		}
+
+		private static bool AltarProxyDisabled() => Main.skyblockWorld || _altarItemExceptionAvailable;
 
 		// A live-true Condition always satisfies itself first, same as a real crafting attempt - a proxy is
 		// only consulted as a fallback when the Condition isn't actually met right now. A Condition with no
