@@ -1,9 +1,7 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using ReLogic.Content;
-using Terraria;
 using Terraria.Audio;
-using Terraria.GameContent;
 using Terraria.ID;
 using Terraria.Localization;
 using Terraria.ModLoader;
@@ -24,12 +22,6 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 			YarnResearchPlayer.ManualScan();
 			SoundEngine.PlaySound(SoundID.MenuTick);
 		}
-
-		private static Asset<Texture2D> GetItemIcon(int itemType)
-		{
-			Main.instance.LoadItem(itemType);
-			return TextureAssets.Item[itemType];
-		}
 	}
 
 	public class CascadeActionPower : AYarnActionPower
@@ -43,12 +35,6 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 		{
 			ResearchCascadeSystem.ManualCascadeScan();
 			SoundEngine.PlaySound(SoundID.MenuTick);
-		}
-
-		private static Asset<Texture2D> GetItemIcon(int itemType)
-		{
-			Main.instance.LoadItem(itemType);
-			return TextureAssets.Item[itemType];
 		}
 	}
 
@@ -65,12 +51,6 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 		{
 			ResearchCascadeSystem.RunShimmerCatchupScan();
 			SoundEngine.PlaySound(SoundID.MenuTick);
-		}
-
-		private static Asset<Texture2D> GetItemIcon(int itemType)
-		{
-			Main.instance.LoadItem(itemType);
-			return TextureAssets.Item[itemType];
 		}
 	}
 
@@ -90,12 +70,6 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 			FreeCraftingSystem.Toggle();
 			SoundEngine.PlaySound(SoundID.MenuTick);
 		}
-
-		private static Asset<Texture2D> GetItemIcon(int itemType)
-		{
-			Main.instance.LoadItem(itemType);
-			return TextureAssets.Item[itemType];
-		}
 	}
 
 	// Destructive/irreversible, so the first click only arms a short confirm window (see ConfirmGuard) -
@@ -107,9 +81,8 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 
 		private readonly ConfirmGuard _guard = new();
 
-		// The vanilla Journey Mode powers menu's own research-gear icon lives in a 21-frame, 36x36-per-frame
-		// spritesheet at Content/Images/UI/Creative/Infinite_Powers.xnb, frame index 1 - already has a
-		// drop shadow baked in, unlike the item-sprite icons above.
+		// The vanilla powers menu's own research-gear icon: frame index 1 of a 21-frame, 36x36-per-frame
+		// spritesheet, with a drop shadow already baked in.
 		protected override Asset<Texture2D> Icon => ModContent.Request<Texture2D>("Terraria/Images/UI/Creative/Infinite_Powers", AssetRequestMode.ImmediateLoad);
 		protected override Rectangle? IconFrame => new(36, 0, 36, 36);
 		protected override bool DrawIconDropShadow => false;

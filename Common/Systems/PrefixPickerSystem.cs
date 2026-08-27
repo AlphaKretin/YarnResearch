@@ -5,11 +5,11 @@ using System.Collections.Generic;
 using Terraria;
 using Terraria.Audio;
 using Terraria.DataStructures;
-using Terraria.GameContent;
 using Terraria.ID;
 using Terraria.ModLoader;
 using Terraria.UI;
 using YarnResearch.Common.Players;
+using YarnResearch.Common.UI;
 using YarnResearch.Common.UI.PrefixPickerUI;
 
 namespace YarnResearch.Common.Systems
@@ -27,7 +27,6 @@ namespace YarnResearch.Common.Systems
 		// Takes priority over both armed colors above - the popup being open for this slot is the more
 		// immediately relevant state, whether or not a prefix has been armed yet.
 		private static readonly Color ActivePickerTargetColor = new(230, 220, 60);
-		private const float BackgroundPadding = 1.6f;
 
 		private UserInterface _userInterface;
 		private PrefixPickerUIState _uiState;
@@ -87,11 +86,10 @@ namespace YarnResearch.Common.Systems
 					// here (it's a distinct preview/template object), so identity comparison never matches -
 					// checking the mouse against this icon's own drawn bounds is self-sufficient instead.
 					// DrawItemIcon only gives us the icon's own (scaled-down) box, not the full slot tile
-					// vanilla actually hover-tests against, so widen by the same BackgroundPadding factor
-					// already used for the tint background below (chosen so that background "reads as the
-					// tile behind the icon") - otherwise this hover check is narrower than vanilla's real
-					// hover area and the unprefixed tooltip peeks through near the tile's edges.
-					if (!item.IsAir && IsMouseOverIcon(screenPositionForItemCenter, iconSize * BackgroundPadding)) {
+					// vanilla actually hover-tests against, so widen it by the same factor the tint
+					// background uses; a narrower box than vanilla's real hover area lets the unprefixed
+					// tooltip peek through near the tile's edges.
+					if (!item.IsAir && IsMouseOverIcon(screenPositionForItemCenter, iconSize * SlotTint.BackgroundPadding)) {
 						_hoveringDuplicationSlotPending = true;
 
 						YarnResearchPlayer player = Main.LocalPlayer.GetModPlayer<YarnResearchPlayer>();
@@ -122,16 +120,14 @@ namespace YarnResearch.Common.Systems
 			}
 		}
 
-		// Performs the duplication itself immediately, rather than arming a one-shot for the player's own
-		// next vanilla click - the popup already knows exactly which prefix was chosen, so there's no reason
-		// to wait for a separate click to apply it. Arms the one-shot first and constructs the item the same
-		// way vanilla's own duplication path does (SetDefaults + OnCreated(JourneyDuplicationItemCreationContext)),
-		// so YarnResearchGlobalItem.OnCreated applies the prefix through the same validated path (Goblin
-		// Tinkerer gating, CanRollPrefix check) other duplication routes already use, and any other mod
-		// listening for that context still sees it fire normally. Hands the result to Main.mouseItem (the
-		// held cursor slot) rather than Player.GetItem straight into the inventory, matching vanilla's own
-		// duplication-click behavior - silently no-ops if the cursor is already holding something, same as
-		// vanilla, rather than risking overwriting/discarding whatever's there.
+		// Duplicates immediately rather than arming a one-shot for the player's next vanilla click, since
+		// the popup already knows which prefix was chosen. The item is built the same way vanilla's own
+		// duplication path builds it (SetDefaults + OnCreated(JourneyDuplicationItemCreationContext)), so
+		// YarnResearchGlobalItem.OnCreated applies the armed prefix through the same validated path (Goblin
+		// Tinkerer gating, CanRollPrefix) every other duplication route uses, and any other mod listening
+		// for that context still sees it fire. The result goes to Main.mouseItem rather than straight into
+		// the inventory, matching vanilla's duplication-click behavior - including no-opping when the cursor
+		// is already holding something, rather than overwriting it.
 		public static void DuplicateWithPrefix(int itemType, int prefixId)
 		{
 			if (!Main.mouseItem.IsAir)
@@ -181,10 +177,7 @@ namespace YarnResearch.Common.Systems
 				tint = player.HasOneShotArmedFor(item.type) ? OneShotArmedColor : DefaultArmedColor;
 			}
 
-			Texture2D background = TextureAssets.InventoryBack9.Value;
-			float backgroundScale = iconSize * BackgroundPadding / background.Width;
-			var origin = new Vector2(background.Width, background.Height) / 2f;
-			spriteBatch.Draw(background, center, null, tint, 0f, origin, backgroundScale, SpriteEffects.None, 0f);
+			SlotTint.Draw(spriteBatch, center, iconSize, tint);
 		}
 
 		private static bool IsMouseOverIcon(Vector2 center, float iconSize)
@@ -277,14 +270,15 @@ namespace YarnResearch.Common.Systems
 		}
 
 		// Runs right before vanilla's own Mouse Text layer draws the tooltip for whatever Main.HoverItem
-		// currently is - swapping in a prefixed clone here (set earlier this same Draw pass, in the
-		// DrawItemIcon hook above, or by a popup row's DrawSelf) makes the tooltip render exactly as a real
-		// prefixed item's would, with no extra tooltip-line code needed. Vanilla re-sets Main.HoverItem itself
-		// from real hover state during each frame's slot draws (which run before this layer), so this doesn't
-		// leak into other frames or other systems reading Main.HoverItem. For the duplication grid, real
-		// ItemSlot hover code already flags Main.mouseText itself; the popup's rows aren't real ItemSlots, so
-		// nothing does that for them - setting it explicitly here (matching UICommon.TooltipMouseText's own
-		// pattern) is what actually makes Mouse Text draw anything at all, not just having HoverItem be set.
+		// currently is - swapping in a prefixed clone here (set earlier this same Draw pass, by the
+		// DrawItemIcon hook above or by a popup row's DrawSelf) makes the tooltip render exactly as a real
+		// prefixed item's would, with no extra tooltip-line code. Vanilla re-sets Main.HoverItem from real
+		// hover state during each frame's slot draws, which run before this layer, so this doesn't leak into
+		// other frames or other readers of Main.HoverItem.
+		//
+		// Main.instance.MouseText("") + Main.mouseText are required, not optional: setting HoverItem alone
+		// draws nothing. Real ItemSlot hover code sets that flag itself, but the popup's rows aren't real
+		// ItemSlots, so nothing else does it for them. Same pattern as UICommon.TooltipMouseText.
 		private static void ApplyHoverPreview()
 		{
 			if (_previewItemType < 0)

@@ -39,9 +39,8 @@ namespace YarnResearch.Common.UI.PrefixPickerUI
 		}
 
 		// Previews this row's exact prefixed result via the tooltip, same mechanism the duplication grid's
-		// own hover-preview uses (PrefixPickerSystem.ApplyHoverPreview). IsMouseHovering is only valid by
-		// Draw time (confirmed via ExampleMod's ExampleUIHoverImageButton.cs, which checks it inside
-		// DrawSelf), not during this element's own Update, where it read stale/always-false state.
+		// own hover-preview uses (PrefixPickerSystem.ApplyHoverPreview). Must be done from DrawSelf:
+		// IsMouseHovering is only valid by Draw time, not during this element's own Update.
 		protected override void DrawSelf(SpriteBatch spriteBatch)
 		{
 			base.DrawSelf(spriteBatch);

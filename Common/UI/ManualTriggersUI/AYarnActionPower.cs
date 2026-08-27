@@ -3,6 +3,8 @@ using System.IO;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using ReLogic.Content;
+using Terraria;
+using Terraria.GameContent;
 using Terraria.GameContent.Creative;
 using Terraria.GameContent.UI.Elements;
 using Terraria.Localization;
@@ -48,6 +50,13 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 
 		public abstract void ProvidePowerButtons(CreativePowerUIElementRequestInfo info, List<UIElement> elements);
 
+		// An item's own inventory sprite, for a power whose icon is just that item.
+		protected static Asset<Texture2D> GetItemIcon(int itemType)
+		{
+			Main.instance.LoadItem(itemType);
+			return TextureAssets.Item[itemType];
+		}
+
 		// No cross-client sync needed - every action here (scanning/sacrificing/clearing the local
 		// player's own inventory, or toggling free crafting) only ever runs on the clicking client.
 		public void DeserializeNetMessage(BinaryReader reader, int whoAmI)
@@ -77,8 +86,7 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 	}
 
 	// Builds the actual GroupOptionButton. TOption is whatever the matching real vanilla button uses: int
-	// for a one-shot action button, bool for a toggle - confirmed by a live dump of the real Time strip,
-	// which holds five GroupOptionButton<bool> and one GroupOptionButton<int>.
+	// for a one-shot action button, bool for a toggle.
 	public abstract class AYarnPower<TOption> : AYarnPower
 	{
 		public GroupOptionButton<TOption> Button { get; private set; }
@@ -107,27 +115,24 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 			Button.Width.Set(info.PreferredButtonWidth, 0f);
 			Button.Height.Set(info.PreferredButtonHeight, 0f);
 
-			// A real vanilla button's _currentOption does not self-match its own _myOption - something
-			// explicitly resets it after construction, so do the same here via the real public setter
-			// instead of leaving it self-matched (which reads as permanently selected).
+			// A fresh GroupOptionButton self-matches its current option to its own value, which reads as
+			// permanently selected. Real vanilla buttons don't, so stamp the unpicked value on instead.
 			Button.SetCurrentOption(UnpickedOption);
 
 			Button.OnLeftClick += (evt, listeningElement) => DoAction();
 
-			// GroupOptionButton's own built-in icon rendering (SetIcon/SetIconFrame) isn't what real
-			// vanilla buttons use - no real button across Time/Personal/Weather has a non-null _iconFrame,
-			// and using it here caused translucency once the real override-opacity fields are copied on,
-			// since the button's own fade/opacity state bleeds into its built-in icon draw. A separate icon
-			// child, same pattern as the category button's own icon, avoids that.
-			IconElement = new ItemIconButton(Icon, hoverText: null, drawBackground: false, sourceRect: IconFrame, drawDropShadow: DrawIconDropShadow) {
+			// A separate icon child rather than GroupOptionButton's built-in SetIcon/SetIconFrame: no real
+			// vanilla button uses those, and doing so here made the icon translucent once the real
+			// override-opacity fields were copied on, since the button's own fade state bleeds into its
+			// built-in icon draw.
+			IconElement = new ItemIconButton(Icon, sourceRect: IconFrame, drawDropShadow: DrawIconDropShadow) {
 				IgnoresMouseInteraction = true,
 			};
 
 			if (IconFrame is Rectangle frame) {
-				// The real Open Research Menu button (same Infinite_Powers gear icon, same frame) doesn't
-				// scale its icon to fill the button - it draws it at native size, flush against the
-				// button's bottom-right corner (a live comparison found a 36x36 icon inset exactly 4px
-				// from a 40x40 button's top-left, with zero margin on the right/bottom).
+				// The real Open Research Menu button (same Infinite_Powers gear icon, same frame) draws its
+				// icon at native size flush against the button's bottom-right corner rather than scaling it
+				// to fill: a 36x36 icon inset exactly 4px from a 40x40 button's top-left.
 				IconElement.Left.Set(info.PreferredButtonWidth - frame.Width, 0f);
 				IconElement.Top.Set(info.PreferredButtonHeight - frame.Height, 0f);
 				IconElement.Width.Set(frame.Width, 0f);

@@ -1,7 +1,9 @@
 using Microsoft.Xna.Framework;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Reflection;
 using Terraria;
 using Terraria.Audio;
 using Terraria.GameContent;
@@ -17,23 +19,61 @@ namespace YarnResearch.Common.Systems
 {
 	public class ResearchCascadeSystem : ModSystem
 	{
+		// Which mechanism unlocked an item, so the right chat notification is batched for it. Declared in
+		// the order FlushNotifications prints them.
+		private enum ResearchOrigin
+		{
+			Held,
+			Craftable,
+			Shimmer,
+			Crate,
+			Sacrifice,
+			Shop,
+		}
+
+		// Chat label per origin, parallel to the enum above.
+		private static readonly string[] NotificationLabels = {
+			"Auto-researched",
+			"Auto-crafted",
+			"Auto-discovered",
+			"Auto-unpacked",
+			"Sacrificed",
+			"Auto-researched from shop",
+		};
+
+		// Which mechanisms a drain should run despite their config toggle being off - see DrainCascade.
+		[Flags]
+		private enum Mechanism
+		{
+			None = 0,
+			Craftable = 1,
+			Shimmer = 2,
+			Crate = 4,
+		}
+
 		private static readonly HashSet<int> ResearchedTypes = new();
 
-		// Proxy signal for any gating Condition (recipes or, since 2026-08-27, NPC shop entries - see
-		// ProcessShopEntries) that the player can trivially force/recreate on demand via some researchable
-		// item, standing in for the live Condition.IsMet() check (see
-		// ConditionsSatisfiable/ShopConditionsSatisfiable). The first five entries are the only
-		// recipe-gating proximity Conditions vanilla has (found by surveying every legacy needXxx ->
-		// Condition rewrite in Recipe.cs.patch, 2026-08-27); the rest were added for shop entries (surveyed
-		// from NPCShopDatabase.cs/Condition.cs the same day) and only ever gate shop entries in vanilla, not
-		// recipes. IMPORTANT: entries here must never apply to a Pylon shop entry, which is deliberately
-		// gated on physically visiting the correct biome, not a proxy - see IsPylonItem/ShopConditionsSatisfiable.
+		// Types currently mid-ResearchItem for a given mechanism, so the synchronous re-entry into
+		// HandleResearched can tell which mechanism unlocked them. Indexed by ResearchOrigin.
+		private static readonly HashSet<int>[] PendingOrigins =
+			Enum.GetValues<ResearchOrigin>().Select(_ => new HashSet<int>()).ToArray();
+
+		// Unlocks awaiting their batched chat notification, indexed the same way.
+		private static readonly Queue<int>[] PendingNotifications =
+			Enum.GetValues<ResearchOrigin>().Select(_ => new Queue<int>()).ToArray();
+
+		// Proxy signal for any gating Condition (on a recipe or an NPC shop entry) that the player can
+		// trivially force or recreate on demand via some researchable item, standing in for the live
+		// Condition.IsMet() check - see ConditionsSatisfiable/ShopConditionsSatisfiable. The first five
+		// entries are the only recipe-gating proximity Conditions vanilla has; the rest only ever gate shop
+		// entries. IMPORTANT: an entry here must never apply to a Pylon shop entry, which is deliberately
+		// gated on physically visiting the correct biome rather than on a proxy - see
+		// IsPylonItem/ShopConditionsSatisfiable.
 		//
-		// Deliberately NOT given an entry: Condition.BiomeSpreadingItems (predicate is
-		// !Main.remixWorld || (Main.tenthAnniversaryWorld && !Main.getGoodWorld) - a world-seed flag, not
-		// about carrying any item despite the name) and other permanent world-seed/state flags for the same
-		// reason as the pre-existing ZenithWorld case: Hardmode/PreHardmode, downed-boss flags, CrimsonWorld,
-		// CorruptWorld, NotRemixWorld - all correctly handled by the IsMet() fallback alone.
+		// Permanent world-seed and world-state flags deliberately get no entry, since the IsMet() fallback
+		// alone handles them correctly: ZenithWorld, Hardmode/PreHardmode, downed-boss flags, CrimsonWorld,
+		// CorruptWorld, NotRemixWorld, and BiomeSpreadingItems (whose predicate is a world-seed check,
+		// !Main.remixWorld || (Main.tenthAnniversaryWorld && !Main.getGoodWorld), despite the name).
 		private static readonly Dictionary<Condition, HashSet<int>> ConditionProxyItemTypes = new() {
 			[Condition.InGraveyard] = new HashSet<int> {
 				ItemID.Tombstone, ItemID.GraveMarker, ItemID.CrossGraveMarker,
@@ -51,8 +91,8 @@ namespace YarnResearch.Common.Systems
 			[Condition.InHallow] = new HashSet<int> { ItemID.PearlstoneBlock, ItemID.PinkIceBlock },
 			[Condition.InGlowshroom] = new HashSet<int> { ItemID.MushroomGrassSeeds },
 			// Sundial/Moondial force-advance to the next day/night, cycling through every time-of-day and
-			// moon-phase gate eventually - Moondial is a rarer, later-game alternative to the Sundial, but
-			// either one satisfies the same set of conditions.
+			// moon-phase gate eventually. Moondial is a rarer, later-game alternative, but either one
+			// satisfies the same set of conditions.
 			[Condition.TimeDay] = new HashSet<int> { ItemID.Sundial, ItemID.Moondial },
 			[Condition.TimeNight] = new HashSet<int> { ItemID.Sundial, ItemID.Moondial },
 			[Condition.MoonPhasesQuarter0] = new HashSet<int> { ItemID.Sundial, ItemID.Moondial },
@@ -78,38 +118,33 @@ namespace YarnResearch.Common.Systems
 		// ConditionProxyItemTypes is static data.
 		private static readonly Dictionary<int, List<Condition>> ConditionsByProxyItemType = BuildConditionsByProxyItemType();
 
-		// Demon and Crimson Altars share a single TileID (26, TileID.DemonAltar - confirmed against the
-		// wiki, which lists both under id 26) - they differ only by tile frame/style, not by id. Altars are
-		// normally found in the world only - unlike the Condition proxies above, there's no obtainable item
-		// form at all in a typical world, so StationResearched (which otherwise requires a researched item
-		// whose createTile matches recipe.requiredTile) can never be satisfied for an altar-gated recipe.
+		// Demon and Crimson Altars share the single TileID.DemonAltar, differing only by tile frame. Altars
+		// normally exist only as world tiles - unlike the Condition proxies above there's no obtainable item
+		// form at all, so StationResearched (which otherwise needs a researched item whose createTile
+		// matches recipe.requiredTile) could never be satisfied for an altar-gated recipe.
 
-		// True if this world has a genuine placeable altar item available, in which case _everNearAltar
-		// below is disabled and the player is expected to actually go obtain and research the real item
-		// instead of relying on the proxy. Two independent sources, both checked live in
-		// AltarProxyDisabled: vanilla Skyblock worlds, where the Eye of Cthulhu drops a placeable
-		// Demon/Crimson Altar item (ItemID 5532/5533) if no altars exist in the world - not a recipe, so
-		// detected via Main.skyblockWorld instead (the item id always exists in ContentSamples regardless
-		// of world type, so presence-checking the id itself would be a false positive in a normal world);
-		// and a mod recipe whose createItem.createTile is TileID.DemonAltar (e.g. the "Craftable Altars"
-		// Workshop mod), computed below in PostAddRecipes.
+		// True if this world has a genuine placeable altar item available, in which case _everNearAltar is
+		// disabled and the player is expected to actually obtain and research the real item. Two independent
+		// sources, both checked in AltarProxyDisabled: vanilla Skyblock worlds, where the Eye of Cthulhu
+		// drops a placeable altar item if the world has none (detected via Main.skyblockWorld, since the
+		// item id exists in ContentSamples regardless of world type); and a mod recipe whose
+		// createItem.createTile is TileID.DemonAltar, computed in PostAddRecipes.
 		private static bool _altarItemExceptionAvailable;
 
 		// Persisted per-world proxy for StationResearched's altar case: once true, a recipe requiring
-		// TileID.DemonAltar as its station is treated as satisfied from then on, standing in for a placed
-		// altar the player found in the world - same shape as _shimmerDiscovered's persisted flag. See
-		// _altarItemExceptionAvailable for when this proxy is disabled instead.
+		// TileID.DemonAltar is treated as satisfied from then on, standing in for a placed altar the player
+		// found in the world. See _altarItemExceptionAvailable for when this proxy is disabled instead.
 		private static bool _everNearAltar;
 
 		// Reverse of recipe.Conditions, covering every Condition attached to any recipe (proxied or not):
-		// Condition -> recipe indices gated by it. Needed for the same reason as RecipesRequiringTile below -
-		// a recipe whose ingredients/station were already satisfied earlier must get rechecked the instant
-		// its Condition becomes satisfiable, not only on the next full manual rescan. Two independent things
-		// can make a Condition here newly satisfiable, both read this same map: a registered proxy item
-		// getting researched (ProcessCraftableOutputs, via ConditionsByProxyItemType), or the Condition's
-		// live IsMet() itself turning true (CheckLiveConditionEdges) - the latter applies even to a proxied
-		// Condition, since a player standing in the real thing right now should work exactly like it does in
-		// vanilla, with no proxy research required first.
+		// Condition -> recipe indices gated by it. Needed for the same reason as RecipesRequiringTile below:
+		// a recipe whose ingredients and station were already satisfied must get rechecked the instant its
+		// Condition becomes satisfiable, not only on the next full manual rescan. Two independent things can
+		// make a Condition newly satisfiable, and both read this map - a registered proxy item getting
+		// researched (ProcessCraftableOutputs, via ConditionsByProxyItemType), or the Condition's live
+		// IsMet() turning true (CheckLiveConditionEdges). The latter applies even to a proxied Condition,
+		// since a player standing in the real thing should work exactly as it does in vanilla, with no proxy
+		// research required first.
 		private static readonly Dictionary<Condition, List<int>> RecipesRequiringCondition = new();
 
 		// Last-observed IsMet() per Condition in RecipesRequiringCondition, so CheckLiveConditionEdges can
@@ -117,29 +152,20 @@ namespace YarnResearch.Common.Systems
 		// true.
 		private static readonly Dictionary<Condition, bool> LiveConditionWasMet = new();
 
-		// Recipe indices gated by Recipe.needTorchGodsFavor (see TorchGodsFavorSatisfied below) - tracked
-		// separately from RecipesRequiringCondition since this gate isn't a Condition at all. Watched the
-		// same way: a false->true transition on Player.unlockedBiomeTorches rechecks every recipe here.
+		// Recipe indices gated by Recipe.needTorchGodsFavor - tracked separately from
+		// RecipesRequiringCondition since this gate isn't a Condition at all (see TorchGodsFavorSatisfied).
+		// Watched the same way: a false->true transition on Player.unlockedBiomeTorches rechecks every
+		// recipe here.
 		private static readonly List<int> RecipesRequiringTorchGodsFavor = new();
 		private static bool _torchGodsFavorWasUnlocked;
 
-		private static Dictionary<int, List<Condition>> BuildConditionsByProxyItemType()
-		{
-			var result = new Dictionary<int, List<Condition>>();
-
-			foreach ((Condition condition, HashSet<int> itemTypes) in ConditionProxyItemTypes) {
-				foreach (int itemType in itemTypes) {
-					if (!result.TryGetValue(itemType, out List<Condition> conditions)) {
-						conditions = new List<Condition>();
-						result[itemType] = conditions;
-					}
-
-					conditions.Add(condition);
-				}
-			}
-
-			return result;
-		}
+		// Recipe.needTorchGodsFavor is a legacy internal bool that tModLoader never converts into a
+		// Condition the way it does needWater/needGraveyardBiome/etc. (PostAddRecipes' ReplaceCondition
+		// calls list every field that does get converted, and this isn't one), so recipe.Conditions has no
+		// representation of it at all. Reflection is the only way to read our own runtime's copy of this
+		// vanilla flag, same justification as TryGetPlayerCarriesItemType.
+		private static readonly FieldInfo NeedTorchGodsFavorField =
+			typeof(Recipe).GetField("needTorchGodsFavor", BindingFlags.Instance | BindingFlags.NonPublic);
 
 		private static readonly Dictionary<int, List<int>> RecipesConsumingItem = new();
 		private static readonly Dictionary<int, List<int>> StationItemTypesByTile = new();
@@ -150,78 +176,58 @@ namespace YarnResearch.Common.Systems
 		private static readonly HashSet<int> ResearchedStationTiles = new();
 
 		// Reverse of the above two: recipe.requiredTile -> recipe indices needing that tile as a station.
-		// Needed because a recipe only ever gets (re-)checked when one of its *ingredients* is newly
-		// researched (via RecipesConsumingItem) - a station becoming newly available on its own never
-		// triggered a recheck, so a recipe whose ingredients were already satisfied earlier (station not
-		// yet known at that moment) could stay permanently unchecked for the rest of that cascade, only
-		// getting picked up later by a full re-scan (e.g. clicking the manual cascade button again).
-		// Confirmed live: a single shimmer-triggered cascade unlocked both Iron and Lead ore/bars but
-		// missed a bar-and-anvil recipe; a manual "Research Craftable Recipes" click found it immediately
-		// after, since it re-checks every already-researched item from scratch rather than only deltas.
+		// Needed because a recipe otherwise only gets rechecked when one of its *ingredients* is newly
+		// researched (via RecipesConsumingItem): a station becoming available on its own triggered nothing,
+		// so a recipe whose ingredients were already satisfied while its station was still unknown stayed
+		// unchecked for the rest of that cascade, and only got picked up by a later full rescan.
 		private static readonly Dictionary<int, List<int>> RecipesRequiringTile = new();
 
 		// Direct Shimmer transmute table (ItemID.Sets.ShimmerTransformToItem), input type -> output type.
-		// Built once since this is static game data. Decraft outputs are looked up dynamically instead
-		// (see ProcessShimmerOutputs) since RecipeLoader.DecraftAvailable depends on live Conditions
-		// (biome, world type, etc.) that can change without a recipe-data reload.
+		// Built once since this is static game data. Decraft outputs are looked up dynamically instead (see
+		// ProcessShimmerOutputs), since RecipeLoader.DecraftAvailable depends on live Conditions (biome,
+		// world type, etc.) that can change without a recipe-data reload.
 		private static readonly Dictionary<int, int> ShimmerOutputsByInput = new();
 
 		// Persisted per-world: once true, Shimmer cascade edges stay open for the rest of the world's life.
 		private static bool _shimmerDiscovered;
 
-		// Populated by YarnResearchPlayer just before it calls CreativeUI.ResearchItem, so
-		// HandleResearched can tell "held-threshold" apart from a manual vanilla-UI research.
-		private static readonly HashSet<int> PendingHeldOrigins = new();
-
-		// Populated by AttemptShimmerResearch just before it calls CreativeUI.ResearchItem, same purpose
-		// as PendingHeldOrigins but for Shimmer-sourced unlocks.
-		private static readonly HashSet<int> PendingShimmerOrigins = new();
-
-		// Populated by AttemptCrateResearch just before it calls CreativeUI.ResearchItem, same purpose
-		// as PendingHeldOrigins but for crate-content unlocks.
-		private static readonly HashSet<int> PendingCrateOrigins = new();
-
-		// Populated by YarnResearchPlayer.BulkSacrificeUnresearched just before a stack finishes
-		// researching via Main.CreativeMenu.SacrificeItem, same purpose as PendingHeldOrigins but for the
-		// bulk-sacrifice manual trigger (which, unlike held-item research, actually consumes the stack).
-		private static readonly HashSet<int> PendingSacrificeOrigins = new();
-
-		// Populated by ProcessCraftableOutputs just before it calls CreativeUI.ResearchItem, same purpose
-		// as PendingHeldOrigins but for recipe-cascade unlocks. Can't be inferred from
-		// "_activeCascadeQueue != null" (i.e. running inside a DrainCascade re-entry), since
-		// ManualCascadeScan calls ProcessCraftableOutputs directly in a loop outside that re-entrant
-		// context.
-		private static readonly HashSet<int> PendingCraftableOrigins = new();
-
-		// Populated by ProcessShopEntries just before it calls CreativeUI.ResearchItem, same purpose as
-		// PendingHeldOrigins but for NPC-shop-stock unlocks.
-		private static readonly HashSet<int> PendingShopOrigins = new();
-
-		private static readonly Queue<int> PendingHeldNotifications = new();
-		private static readonly Queue<int> PendingCraftableNotifications = new();
-		private static readonly Queue<int> PendingShimmerNotifications = new();
-		private static readonly Queue<int> PendingCrateNotifications = new();
-		private static readonly Queue<int> PendingSacrificeNotifications = new();
-		private static readonly Queue<int> PendingShopNotifications = new();
-
 		public static ModKeybind ResearchCrateContentsKeybind { get; private set; }
 
-		// Set while a cascade triggered by HandleResearched is draining, so a CreativeUI.ResearchItem
-		// call made from within that drain - which synchronously re-enters HandleResearched via
+		// Set while a cascade triggered by HandleResearched is draining, so a CreativeUI.ResearchItem call
+		// made from within that drain - which synchronously re-enters HandleResearched via
 		// GlobalItem.OnResearched - is recognized as our own cascade rather than an external research.
 		private static Queue<int> _activeCascadeQueue;
 
-		// Set for the duration of a caller-defined batch (e.g. one YarnResearchPlayer scan pass), so
-		// several distinct top-level HandleResearched calls within it share one queue/flush instead of
-		// each draining and flushing independently.
+		// Set for the duration of a caller-defined batch (e.g. one YarnResearchPlayer scan pass), so several
+		// distinct top-level HandleResearched calls within it share one queue and flush instead of each
+		// draining and flushing independently.
 		private static Queue<int> _batchQueue;
 
-		// Set for the duration of a manual trigger's own BeginBatch/EndBatch, so DrainCascade's recursive
-		// continuation of THAT SAME mechanism ignores its config toggle too, not just the manual trigger's
-		// own initial pass - see DrainCascade for why this matters.
-		private static bool _forceCraftableDrain;
-		private static bool _forceShimmerDrain;
-		private static bool _forceCrateDrain;
+		// Mechanisms whose config toggle a currently-running drain should ignore - set by a manual trigger
+		// for the duration of its own batch. See DrainCascade.
+		private static Mechanism _forcedMechanisms;
+
+		private static Dictionary<int, List<Condition>> BuildConditionsByProxyItemType()
+		{
+			var result = new Dictionary<int, List<Condition>>();
+
+			foreach ((Condition condition, HashSet<int> itemTypes) in ConditionProxyItemTypes) {
+				foreach (int itemType in itemTypes)
+					AddToIndex(result, itemType, condition);
+			}
+
+			return result;
+		}
+
+		private static void AddToIndex<TKey, TValue>(Dictionary<TKey, List<TValue>> index, TKey key, TValue value)
+		{
+			if (!index.TryGetValue(key, out List<TValue> values)) {
+				values = new List<TValue>();
+				index[key] = values;
+			}
+
+			values.Add(value);
+		}
 
 		public override void Load()
 		{
@@ -246,16 +252,14 @@ namespace YarnResearch.Common.Systems
 				TryUnpackCrate(hoverItem.type);
 		}
 
-		// Watches every recipe-gating Condition (proxied or not), plus the altar tile-station proxy below,
-		// for a false->true transition, so a recipe blocked only by an unmet Condition or an unvisited
-		// altar gets rechecked the instant it actually becomes true (e.g. the player walks near lava, or
-		// finds a Demon Altar) - including a proxied Condition, so meeting the real requirement naturally
-		// works even before the proxy item is ever researched, exactly like a real crafting attempt would.
-		// TryResearchRecipeOutput/ConditionsSatisfiable/StationResearched still re-verify everything, so this
-		// is just a trigger. Called from YarnResearchPlayer.PostUpdate, same tick as the Shimmer-discovery
-		// check - this isn't input-driven like the crate keybind above, it's a live world/biome state check,
-		// so it belongs on the same per-tick path as Shimmer discovery rather than UpdateUI (which only
-		// needs to survive autopause for keybind/UI purposes, not for this).
+		// Watches every recipe-gating Condition (proxied or not), plus the altar tile-station proxy and
+		// Torch God's Favor, for a false->true transition, so a recipe blocked only by an unmet gate gets
+		// rechecked the instant it actually becomes true (e.g. the player walks near lava, or finds a Demon
+		// Altar). Includes proxied Conditions, so meeting the real requirement works even before the proxy
+		// item is ever researched, exactly like a real crafting attempt would.
+		// TryResearchRecipeOutput/ConditionsSatisfiable/StationResearched still re-verify everything, so
+		// this is only a trigger. Called from YarnResearchPlayer.PostUpdate rather than UpdateUI: this is a
+		// live world/biome state check, not input handling that has to survive autopause.
 		public static void CheckLiveConditionEdges()
 		{
 			if (RecipesRequiringCondition.Count == 0 && RecipesRequiringTile.Count == 0 &&
@@ -267,14 +271,11 @@ namespace YarnResearch.Common.Systems
 				return;
 
 			// Player.adjTile/adjWaterSource/adjLava/adjHoney (what NearWater/NearLava/NearHoney read) are
-			// normally only recomputed by the crafting UI's own per-frame update, not by ordinary Player.Update
-			// - confirmed live 2026-08-27 (diagnostic log): NearWater stayed false the whole time standing in
-			// water and only flipped true the instant the inventory was opened. AdjTiles() is the public
-			// vanilla method the crafting UI itself calls to do that computation (confirmed via
-			// tModLoader.xml's doc comment on Player.adjTile, which cross-references it) - forcing it here
-			// keeps those flags fresh so the live Conditions we check reflect the player's actual position
-			// regardless of whether any menu is open. The altar loop below reads the same freshly-computed
-			// adjTile array.
+			// normally only recomputed by the crafting UI's own per-frame update, not by ordinary
+			// Player.Update - without this, NearWater stays false while standing in water and only flips
+			// true the instant the inventory is opened. AdjTiles() is the public vanilla method the crafting
+			// UI itself calls to do that computation; forcing it here keeps those flags fresh regardless of
+			// whether any menu is open. The altar check below reads the same freshly-computed adjTile array.
 			Main.LocalPlayer.AdjTiles();
 
 			List<int> recipesToRecheck = null;
@@ -348,15 +349,27 @@ namespace YarnResearch.Common.Systems
 			ConditionProxyItemTypes.TryGetValue(condition, out HashSet<int> proxyItemTypes) &&
 			proxyItemTypes.Any(ResearchedTypes.Contains);
 
-		public static void RegisterHeldOrigin(int type) => PendingHeldOrigins.Add(type);
-
-		public static void ClearHeldOrigin(int type) => PendingHeldOrigins.Remove(type);
-
-		public static void RegisterSacrificeOrigin(int type) => PendingSacrificeOrigins.Add(type);
-
-		public static void ClearSacrificeOrigin(int type) => PendingSacrificeOrigins.Remove(type);
-
 		public static bool ShimmerDiscovered => _shimmerDiscovered;
+
+		// Researches type, tagging it with the mechanism responsible for the duration of the call.
+		// CreativeUI.ResearchItem synchronously re-enters HandleResearched via GlobalItem.OnResearched,
+		// which reads the tag back off to pick the right notification queue.
+		private static void ResearchWithOrigin(int type, ResearchOrigin origin)
+		{
+			PendingOrigins[(int)origin].Add(type);
+			CreativeUI.ResearchItem(type);
+			PendingOrigins[(int)origin].Remove(type);
+		}
+
+		// The held-item threshold path, driven by YarnResearchPlayer's inventory scan.
+		public static void ResearchAsHeldItem(int type) => ResearchWithOrigin(type, ResearchOrigin.Held);
+
+		// The bulk-sacrifice trigger can't go through ResearchWithOrigin - it researches by consuming the
+		// stack via Main.CreativeMenu.SacrificeItem rather than by calling CreativeUI.ResearchItem - so it
+		// brackets that call with these instead.
+		public static void RegisterSacrificeOrigin(int type) => PendingOrigins[(int)ResearchOrigin.Sacrifice].Add(type);
+
+		public static void ClearSacrificeOrigin(int type) => PendingOrigins[(int)ResearchOrigin.Sacrifice].Remove(type);
 
 		// Idempotent - safe to call every tick while the player is near Shimmer. Sets the persisted
 		// per-world "has seen Shimmer" flag unconditionally (independent of the AutoResearchShimmerOutputs
@@ -371,39 +384,47 @@ namespace YarnResearch.Common.Systems
 			return true;
 		}
 
-		// Requires MarkShimmerDiscovered to have been called at least once (per world) - a no-op
-		// otherwise. Runs a catch-up pass over already-researched items so any reachable Shimmer outputs
-		// unlock, batched into one notification. Callable both by the automatic path (immediately after
-		// first discovery, gated by the config toggle there) and directly by the manual trigger button
-		// (bypassing the toggle, same as the recipe-cascade manual trigger).
+		// Requires MarkShimmerDiscovered to have been called at least once (per world) - a no-op otherwise.
+		// Callable both by the automatic path (immediately after first discovery, gated by the config toggle
+		// there) and directly by the manual trigger button, which bypasses the toggle.
 		public static void RunShimmerCatchupScan()
 		{
 			if (!_shimmerDiscovered)
 				return;
 
+			RunCatchupScan(Mechanism.Shimmer, ProcessShimmerOutputs, "shimmer catch-up");
+		}
+
+		// Catch-up pass over already-researched items, ignoring the mechanism's config toggle - callable by
+		// a manual trigger button so a player who keeps the toggle off can still fire it on demand.
+		public static void ManualCascadeScan() =>
+			RunCatchupScan(Mechanism.Craftable, ProcessCraftableOutputs, "manual cascade scan");
+
+		private static void RunCatchupScan(Mechanism mechanism, Action<int> processType, string logLabel)
+		{
 			int[] snapshot = ResearchedTypes.ToArray();
 			var stopwatch = Stopwatch.StartNew();
 
 			BeginBatch();
-			_forceShimmerDrain = true;
+			_forcedMechanisms |= mechanism;
 			try {
 				foreach (int type in snapshot)
-					ProcessShimmerOutputs(type);
+					processType(type);
 			}
 			finally {
 				EndBatch();
-				_forceShimmerDrain = false;
+				_forcedMechanisms &= ~mechanism;
 			}
 
 			stopwatch.Stop();
 			ModContent.GetInstance<YarnResearch>().Logger.Info(
-				$"ResearchCascadeSystem shimmer catch-up: scanned {snapshot.Length} already-researched items, " +
+				$"ResearchCascadeSystem {logLabel}: scanned {snapshot.Length} already-researched items, " +
 				$"took {stopwatch.Elapsed.TotalMilliseconds:F2}ms total (includes the cascade drain logged separately above)");
 		}
 
-		// Direct transmute takes priority (matches vanilla: a set ShimmerTransformToItem entry means the
-		// item does not attempt to decraft). Otherwise, falls back to decraft: finds the recipe Shimmer
-		// would currently reverse via ShimmerTransforms.GetDecraftingRecipeIndex (which itself calls
+		// Direct transmute takes priority (matching vanilla: a set ShimmerTransformToItem entry means the
+		// item does not attempt to decraft). Otherwise falls back to decraft: finds the recipe Shimmer would
+		// currently reverse via ShimmerTransforms.GetDecraftingRecipeIndex (which calls
 		// RecipeLoader.DecraftAvailable per candidate recipe, so this is always evaluated live rather than
 		// cached) and unlocks its ingredients - or its customShimmerResults, if the recipe overrides what
 		// decrafting returns.
@@ -427,13 +448,8 @@ namespace YarnResearch.Common.Systems
 
 		private static void AttemptShimmerResearch(int outputType)
 		{
-			if (ResearchedTypes.Contains(outputType))
-				return;
-
-			PendingShimmerOrigins.Add(outputType);
-			// Synchronously re-enters HandleResearched below via GlobalItem.OnResearched.
-			CreativeUI.ResearchItem(outputType);
-			PendingShimmerOrigins.Remove(outputType);
+			if (!ResearchedTypes.Contains(outputType))
+				ResearchWithOrigin(outputType, ResearchOrigin.Shimmer);
 		}
 
 		// Unpacks a researched crate's possible contents on demand, regardless of the
@@ -444,13 +460,13 @@ namespace YarnResearch.Common.Systems
 				return;
 
 			BeginBatch();
-			_forceCrateDrain = true;
+			_forcedMechanisms |= Mechanism.Crate;
 			try {
 				ProcessCrateContents(type);
 			}
 			finally {
 				EndBatch();
-				_forceCrateDrain = false;
+				_forcedMechanisms &= ~Mechanism.Crate;
 			}
 		}
 
@@ -489,13 +505,8 @@ namespace YarnResearch.Common.Systems
 
 		private static void AttemptCrateResearch(int outputType)
 		{
-			if (!IsUnresearchedAndResearchable(outputType))
-				return;
-
-			PendingCrateOrigins.Add(outputType);
-			// Synchronously re-enters HandleResearched below via GlobalItem.OnResearched.
-			CreativeUI.ResearchItem(outputType);
-			PendingCrateOrigins.Remove(outputType);
+			if (IsUnresearchedAndResearchable(outputType))
+				ResearchWithOrigin(outputType, ResearchOrigin.Crate);
 		}
 
 		private static bool IsUnresearchedAndResearchable(int type)
@@ -511,10 +522,10 @@ namespace YarnResearch.Common.Systems
 		// full entry list (not just ActiveEntries) so conditional/currently-hidden stock is considered too,
 		// e.g. a biome-exclusive item counts once its gating Condition is researched-satisfiable even while
 		// the shop isn't showing it right now. Only NPCShop (not other AbstractNPCShop implementers) exposes
-		// the full entry list needed for this - TravelingMerchantShop is a special case: its actual
-		// per-visit randomized stock lives in the raw-item-id Main.travelShop array, not in any
-		// AbstractNPCShop.Entry list (its own Entries/InfoEntries are unrelated fixed/info-only listings),
-		// so it's handled separately below to research only what he's currently stocking, not his full pool.
+		// the full entry list needed for this. TravelingMerchantShop is a special case: its actual per-visit
+		// randomized stock lives in the raw-item-id Main.travelShop array, not in any AbstractNPCShop.Entry
+		// list (its own Entries/InfoEntries are unrelated fixed/info-only listings), so it's handled
+		// separately below to research only what he's currently stocking, not his full pool.
 		public static void ProcessShopEntries(AbstractNPCShop shop)
 		{
 			var config = ModContent.GetInstance<YarnResearchConfig>();
@@ -546,10 +557,7 @@ namespace YarnResearch.Common.Systems
 				!ShopConditionsSatisfiable(entry))
 				return;
 
-			PendingShopOrigins.Add(item.type);
-			// Synchronously re-enters HandleResearched above via GlobalItem.OnResearched.
-			CreativeUI.ResearchItem(item.type);
-			PendingShopOrigins.Remove(item.type);
+			ResearchWithOrigin(item.type, ResearchOrigin.Shop);
 		}
 
 		// Travelling Merchant's already-rolled stock has no Entry/Condition wrapper to check - by the time
@@ -560,9 +568,7 @@ namespace YarnResearch.Common.Systems
 				!ContentSamples.ItemsByType.TryGetValue(itemType, out Item item) || !IsShopEntryAffordable(item))
 				return;
 
-			PendingShopOrigins.Add(itemType);
-			CreativeUI.ResearchItem(itemType);
-			PendingShopOrigins.Remove(itemType);
+			ResearchWithOrigin(itemType, ResearchOrigin.Shop);
 		}
 
 		// Mirrors the coin math Player.CanAfford(long, int) already does (the same public method vanilla's
@@ -594,13 +600,12 @@ namespace YarnResearch.Common.Systems
 			return _pylonItemTypes.Contains(type);
 		}
 
-		// Same shape as ConditionsSatisfiable (live IsMet() first, ConditionProxyItemTypes fallback), but for
-		// a shop entry's Conditions rather than a recipe's. Separate method since shop entries have no
-		// recipe index to key a live-edge recheck off of - shop Conditions are only (re-)evaluated at
-		// shop-open time (ProcessShopEntries), not watched continuously the way CheckLiveConditionEdges
-		// watches recipe Conditions. Pylons never get the proxy fallback - they're deliberately gated on
-		// physically visiting the correct biome, so a Pylon entry's Conditions must all be live-IsMet() to
-		// pass, same as buying one for real.
+		// Same shape as ConditionsSatisfiable (live IsMet() first, proxy fallback), but for a shop entry's
+		// Conditions rather than a recipe's. Separate method since shop entries have no recipe index to key
+		// a live-edge recheck off of - shop Conditions are only evaluated at shop-open time, not watched
+		// continuously the way CheckLiveConditionEdges watches recipe Conditions. Pylons never get the proxy
+		// fallback: they're deliberately gated on physically visiting the correct biome, so a Pylon entry's
+		// Conditions must all be live-IsMet() to pass, same as buying one for real.
 		private static bool ShopConditionsSatisfiable(NPCShop.Entry entry)
 		{
 			bool allowProxy = !IsPylonItem(entry.Item.type);
@@ -612,8 +617,7 @@ namespace YarnResearch.Common.Systems
 				if (!allowProxy)
 					return false;
 
-				if (ConditionProxyItemTypes.TryGetValue(condition, out HashSet<int> proxyItemTypes) &&
-					proxyItemTypes.Any(ResearchedTypes.Contains))
+				if (ConditionProxyResearched(condition))
 					continue;
 
 				if (TryGetPlayerCarriesItemType(condition) is int carriedItemType &&
@@ -637,9 +641,8 @@ namespace YarnResearch.Common.Systems
 			if (closure == null)
 				return null;
 
-			System.Reflection.FieldInfo field = closure.GetType()
-				.GetField("itemId", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public |
-					System.Reflection.BindingFlags.NonPublic);
+			FieldInfo field = closure.GetType()
+				.GetField("itemId", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 
 			return field?.GetValue(closure) as int?;
 		}
@@ -691,30 +694,14 @@ namespace YarnResearch.Common.Systems
 			if (ResearchedTypes.Contains(type))
 				return;
 
-			bool heldOrigin = PendingHeldOrigins.Remove(type);
-			bool shimmerOrigin = PendingShimmerOrigins.Remove(type);
-			bool crateOrigin = PendingCrateOrigins.Remove(type);
-			bool sacrificeOrigin = PendingSacrificeOrigins.Remove(type);
-			bool craftableOrigin = PendingCraftableOrigins.Remove(type);
-			bool shopOrigin = PendingShopOrigins.Remove(type);
-			bool isReentrant = _activeCascadeQueue != null;
+			Queue<int> notificationQueue = null;
+			for (int origin = 0; origin < PendingOrigins.Length; origin++) {
+				if (PendingOrigins[origin].Remove(type))
+					notificationQueue ??= PendingNotifications[origin];
+			}
 
-			Queue<int> notificationQueue = heldOrigin
-				? PendingHeldNotifications
-				: shimmerOrigin
-					? PendingShimmerNotifications
-					: crateOrigin
-						? PendingCrateNotifications
-						: sacrificeOrigin
-							? PendingSacrificeNotifications
-							: craftableOrigin
-								? PendingCraftableNotifications
-								: shopOrigin
-									? PendingShopNotifications
-									: null;
-
-			if (isReentrant) {
-				// The active DrainCascade loop below owns processing this type further.
+			if (_activeCascadeQueue != null) {
+				// The active DrainCascade loop owns processing this type further.
 				MarkResearched(type, _activeCascadeQueue, notificationQueue);
 				return;
 			}
@@ -745,9 +732,7 @@ namespace YarnResearch.Common.Systems
 			StationItemTypesByTile.Clear();
 			RecipesRequiringTile.Clear();
 			RecipesRequiringCondition.Clear();
-			LiveConditionWasMet.Clear();
 			RecipesRequiringTorchGodsFavor.Clear();
-			_torchGodsFavorWasUnlocked = false;
 			ShimmerOutputsByInput.Clear();
 			_altarItemExceptionAvailable = false;
 
@@ -760,32 +745,14 @@ namespace YarnResearch.Common.Systems
 			for (int i = 0; i < Recipe.numRecipes; i++) {
 				Recipe recipe = Main.recipe[i];
 
-				foreach (Item ingredient in recipe.requiredItem) {
-					if (!RecipesConsumingItem.TryGetValue(ingredient.type, out List<int> recipeIndices)) {
-						recipeIndices = new List<int>();
-						RecipesConsumingItem[ingredient.type] = recipeIndices;
-					}
+				foreach (Item ingredient in recipe.requiredItem)
+					AddToIndex(RecipesConsumingItem, ingredient.type, i);
 
-					recipeIndices.Add(i);
-				}
+				if (recipe.requiredTile >= 0)
+					AddToIndex(RecipesRequiringTile, recipe.requiredTile, i);
 
-				if (recipe.requiredTile >= 0) {
-					if (!RecipesRequiringTile.TryGetValue(recipe.requiredTile, out List<int> tileRecipeIndices)) {
-						tileRecipeIndices = new List<int>();
-						RecipesRequiringTile[recipe.requiredTile] = tileRecipeIndices;
-					}
-
-					tileRecipeIndices.Add(i);
-				}
-
-				foreach (Condition condition in recipe.Conditions) {
-					if (!RecipesRequiringCondition.TryGetValue(condition, out List<int> conditionRecipes)) {
-						conditionRecipes = new List<int>();
-						RecipesRequiringCondition[condition] = conditionRecipes;
-					}
-
-					conditionRecipes.Add(i);
-				}
+				foreach (Condition condition in recipe.Conditions)
+					AddToIndex(RecipesRequiringCondition, condition, i);
 
 				if (NeedTorchGodsFavorField != null && (bool)NeedTorchGodsFavorField.GetValue(recipe))
 					RecipesRequiringTorchGodsFavor.Add(i);
@@ -795,18 +762,10 @@ namespace YarnResearch.Common.Systems
 			}
 
 			for (int type = 0; type < ItemLoader.ItemCount; type++) {
-				if (!ContentSamples.ItemsByType.TryGetValue(type, out Item item))
+				if (!ContentSamples.ItemsByType.TryGetValue(type, out Item item) || item.createTile == -1)
 					continue;
 
-				if (item.createTile == -1)
-					continue;
-
-				if (!StationItemTypesByTile.TryGetValue(item.createTile, out List<int> itemTypes)) {
-					itemTypes = new List<int>();
-					StationItemTypesByTile[item.createTile] = itemTypes;
-				}
-
-				itemTypes.Add(type);
+				AddToIndex(StationItemTypesByTile, item.createTile, type);
 			}
 		}
 
@@ -835,12 +794,15 @@ namespace YarnResearch.Common.Systems
 		{
 			ResearchedTypes.Clear();
 			ResearchedStationTiles.Clear();
-			PendingHeldOrigins.Clear();
-			PendingShimmerOrigins.Clear();
-			PendingCrateOrigins.Clear();
-			PendingSacrificeOrigins.Clear();
-			PendingCraftableOrigins.Clear();
-			PendingShopOrigins.Clear();
+
+			foreach (HashSet<int> origins in PendingOrigins)
+				origins.Clear();
+
+			// Both track a false->true edge against the previous tick, so they belong to the world/character
+			// being played rather than to the mod load - carrying them over would swallow the first real
+			// transition in the world being entered.
+			LiveConditionWasMet.Clear();
+			_torchGodsFavorWasUnlocked = false;
 
 			for (int type = 0; type < ItemLoader.ItemCount; type++) {
 				if (!ContentSamples.ItemsByType.TryGetValue(type, out Item item) || item.ResearchUnlockCount <= 0)
@@ -862,20 +824,19 @@ namespace YarnResearch.Common.Systems
 				int type = queue.Dequeue();
 				stepsProcessed++;
 
-				// The || _force* flags let a manual trigger's own drain fully resolve THAT mechanism's
-				// transitive chain in one call, even with its toggle off - without them, only the first
-				// layer unlocked by the manual trigger's initial pass would use the bypass; anything
-				// further downstream (found only once this drain re-queues newly-unlocked items) would
-				// silently fall back to the toggle-gated automatic behavior and get skipped, requiring
-				// several repeated manual clicks to fully converge (confirmed live: repeatedly clicking
-				// the Shimmer button kept finding new results for ~7 clicks before settling).
-				if (config.AutoResearchCraftable || _forceCraftableDrain)
+				// _forcedMechanisms lets a manual trigger's drain fully resolve that mechanism's transitive
+				// chain in one call even with its toggle off. Without it, only the first layer unlocked by
+				// the trigger's initial pass would bypass the toggle; anything further downstream (found
+				// only once this drain re-queues newly-unlocked items) would fall back to the toggle-gated
+				// automatic behavior and be skipped, so the player would have to click several times before
+				// the cascade converged.
+				if (config.AutoResearchCraftable || _forcedMechanisms.HasFlag(Mechanism.Craftable))
 					ProcessCraftableOutputs(type);
 
-				if ((config.AutoResearchShimmerOutputs || _forceShimmerDrain) && _shimmerDiscovered)
+				if ((config.AutoResearchShimmerOutputs || _forcedMechanisms.HasFlag(Mechanism.Shimmer)) && _shimmerDiscovered)
 					ProcessShimmerOutputs(type);
 
-				if (config.AutoResearchCrateContents || _forceCrateDrain)
+				if (config.AutoResearchCrateContents || _forcedMechanisms.HasFlag(Mechanism.Crate))
 					ProcessCrateContents(type);
 
 				if (queue.Count > maxQueueDepth)
@@ -883,11 +844,10 @@ namespace YarnResearch.Common.Systems
 			}
 		}
 
-		// type may complete a recipe two different ways: as a newly-researched ingredient (checked via
-		// RecipesConsumingItem) or as a newly-researched station item (checked via RecipesRequiringTile,
-		// keyed by the tile it places) - a recipe needs both its check paths covered, since a recipe whose
-		// ingredients were already satisfied earlier (station not yet known at that point) would otherwise
-		// never get re-checked once the station itself shows up later.
+		// type may complete a recipe three different ways: as a newly-researched ingredient, as a
+		// newly-researched station item (keyed by the tile it places), or as a newly-researched proxy item
+		// for a gating Condition. Each needs its own index - a recipe whose other requirements were already
+		// satisfied would otherwise never be rechecked when the last one arrives.
 		private static void ProcessCraftableOutputs(int type)
 		{
 			if (RecipesConsumingItem.TryGetValue(type, out List<int> ingredientRecipes)) {
@@ -924,34 +884,7 @@ namespace YarnResearch.Common.Systems
 				!TorchGodsFavorSatisfied(recipe))
 				return;
 
-			PendingCraftableOrigins.Add(outputType);
-			// Synchronously re-enters HandleResearched above via GlobalItem.OnResearched.
-			CreativeUI.ResearchItem(outputType);
-			PendingCraftableOrigins.Remove(outputType);
-		}
-
-		// Catch-up pass, ignoring the AutoResearchCraftable toggle - callable directly by the manual
-		// trigger button so a player who keeps the toggle off can still fire the cascade on demand.
-		public static void ManualCascadeScan()
-		{
-			int[] snapshot = ResearchedTypes.ToArray();
-			var stopwatch = Stopwatch.StartNew();
-
-			BeginBatch();
-			_forceCraftableDrain = true;
-			try {
-				foreach (int type in snapshot)
-					ProcessCraftableOutputs(type);
-			}
-			finally {
-				EndBatch();
-				_forceCraftableDrain = false;
-			}
-
-			stopwatch.Stop();
-			ModContent.GetInstance<YarnResearch>().Logger.Info(
-				$"ResearchCascadeSystem manual cascade scan: scanned {snapshot.Length} already-researched items, " +
-				$"took {stopwatch.Elapsed.TotalMilliseconds:F2}ms total (includes the cascade drain logged separately above)");
+			ResearchWithOrigin(outputType, ResearchOrigin.Craftable);
 		}
 
 		private static bool AllIngredientsResearched(Recipe recipe)
@@ -981,17 +914,6 @@ namespace YarnResearch.Common.Systems
 
 		private static bool AltarProxyDisabled() => Main.skyblockWorld || _altarItemExceptionAvailable;
 
-		// Recipe.needTorchGodsFavor (e.g. Torch God's Flavor) is a legacy internal bool field tModLoader
-		// never converts into a Condition the way it does needWater/needGraveyardBiome/etc. (confirmed via
-		// the public patches repo - PostAddRecipes's ReplaceCondition calls list every field that DOES get
-		// converted, and this isn't one of them), so recipe.Conditions has no representation of it at all -
-		// reflection is the only way to read our own runtime's copy of this vanilla flag, same justification
-		// as TryGetPlayerCarriesItemType above. Player.unlockedBiomeTorches (public) is the matching flag
-		// Torch God's Favor sets once consumed.
-		private static readonly System.Reflection.FieldInfo NeedTorchGodsFavorField =
-			typeof(Recipe).GetField("needTorchGodsFavor", System.Reflection.BindingFlags.Instance |
-				System.Reflection.BindingFlags.NonPublic);
-
 		private static bool TorchGodsFavorSatisfied(Recipe recipe)
 		{
 			if (Main.LocalPlayer.unlockedBiomeTorches)
@@ -1003,16 +925,12 @@ namespace YarnResearch.Common.Systems
 		// A live-true Condition always satisfies itself first, same as a real crafting attempt - a proxy is
 		// only consulted as a fallback when the Condition isn't actually met right now. A Condition with no
 		// registered proxy and no live match blocks the cascade, so an unrecognized Condition (e.g. from
-		// another mod's recipe) behaves the same way a real crafting attempt would, rather than being
-		// silently bypassed - which was the original Gravedigger's Shovel bug.
+		// another mod's recipe) behaves the same way a real crafting attempt would rather than being
+		// silently bypassed.
 		private static bool ConditionsSatisfiable(Recipe recipe)
 		{
 			foreach (Condition condition in recipe.Conditions) {
-				if (condition.IsMet())
-					continue;
-
-				if (!ConditionProxyItemTypes.TryGetValue(condition, out HashSet<int> proxyItemTypes) ||
-					!proxyItemTypes.Any(ResearchedTypes.Contains))
+				if (!condition.IsMet() && !ConditionProxyResearched(condition))
 					return false;
 			}
 
@@ -1032,40 +950,21 @@ namespace YarnResearch.Common.Systems
 
 		private static void FlushNotifications()
 		{
-			if (PendingHeldNotifications.Count == 0 && PendingCraftableNotifications.Count == 0 &&
-				PendingShimmerNotifications.Count == 0 && PendingCrateNotifications.Count == 0 &&
-				PendingSacrificeNotifications.Count == 0 && PendingShopNotifications.Count == 0)
+			if (PendingNotifications.All(queue => queue.Count == 0))
 				return;
 
 			var config = ModContent.GetInstance<YarnResearchConfig>();
 			if (config.ShowAutoResearchNotifications) {
-				if (PendingHeldNotifications.Count > 0)
-					Main.NewText($"Auto-researched: {BuildTagList(PendingHeldNotifications)}");
-
-				if (PendingCraftableNotifications.Count > 0)
-					Main.NewText($"Auto-crafted: {BuildTagList(PendingCraftableNotifications)}");
-
-				if (PendingShimmerNotifications.Count > 0)
-					Main.NewText($"Auto-discovered: {BuildTagList(PendingShimmerNotifications)}");
-
-				if (PendingCrateNotifications.Count > 0)
-					Main.NewText($"Auto-unpacked: {BuildTagList(PendingCrateNotifications)}");
-
-				if (PendingSacrificeNotifications.Count > 0)
-					Main.NewText($"Sacrificed: {BuildTagList(PendingSacrificeNotifications)}");
-
-				if (PendingShopNotifications.Count > 0)
-					Main.NewText($"Auto-researched from shop: {BuildTagList(PendingShopNotifications)}");
+				for (int origin = 0; origin < PendingNotifications.Length; origin++) {
+					if (PendingNotifications[origin].Count > 0)
+						Main.NewText($"{NotificationLabels[origin]}: {BuildTagList(PendingNotifications[origin])}");
+				}
 
 				SoundEngine.PlaySound(SoundID.ResearchComplete);
 			}
 
-			PendingHeldNotifications.Clear();
-			PendingCraftableNotifications.Clear();
-			PendingShimmerNotifications.Clear();
-			PendingCrateNotifications.Clear();
-			PendingSacrificeNotifications.Clear();
-			PendingShopNotifications.Clear();
+			foreach (Queue<int> queue in PendingNotifications)
+				queue.Clear();
 		}
 
 		private static string BuildTagList(Queue<int> types)

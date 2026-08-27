@@ -4,26 +4,36 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Terraria;
-using Terraria.GameContent;
 using Terraria.ID;
 using Terraria.Localization;
 using Terraria.ModLoader;
 using Terraria.ModLoader.IO;
 using Terraria.UI;
 using YarnResearch.Common.Configs;
+using YarnResearch.Common.UI;
 
 namespace YarnResearch.Common.Systems
 {
 	public class InfiniteBuffSystem : ModSystem
 	{
+		// What this system does with a given item, and which buffType that drives.
+		private enum BuffItemKind
+		{
+			None,
+			GardenGnome,
+			Banner,
+			Placed,
+			Consumable,
+		}
+
 		// buffType -> explicit toggle state. Only buffTypes actually touched (player toggle, auto-default,
 		// tiering) get an entry - absence means "never decided", not "off". Covers potions/food and every
-		// normal category-3 placed item (below) - NOT banners or Garden Gnome, which have no buffType of
-		// their own and use bespoke per-tick proximity forcing instead (see ToggledBanners/_gardenGnomeInfinite).
+		// whitelisted placed buff item - NOT banners or Garden Gnome, which have no buffType of their own
+		// and use bespoke per-tick proximity forcing instead (see ToggledBanners/_gardenGnomeInfinite).
 		private static readonly Dictionary<int, bool> InfiniteBuffTypes = new();
 
-		// Curated whitelist for category 3 (placed buff items that grant a normal Player.buffType buff) -
-		// itemType -> buffType.
+		// Curated whitelist of placed buff items that grant a normal Player.buffType buff - itemType ->
+		// buffType.
 		private static readonly Dictionary<int, int> PlacedBuffItems = new() {
 			{ ItemID.AmmoBox, BuffID.AmmoBox },
 			{ ItemID.BewitchingTable, BuffID.Bewitched },
@@ -45,21 +55,22 @@ namespace YarnResearch.Common.Systems
 
 		private static readonly int[] WellFedTierOrder = { BuffID.WellFed, BuffID.WellFed2, BuffID.WellFed3 };
 
-		// Banners are a bespoke category-3 case: every banner shares one generic BuffID.MonsterBanner buff,
-		// while the per-enemy damage bonus is a separate non-buff bool array (Main.SceneMetrics.NPCBannerBuff)
-		// that vanilla recomputes from tile proximity every tick. This stores which individual banner
-		// *items* are toggled on. The shared BuffID.MonsterBanner buff itself goes through the normal
-		// SetInfinite/TimeLeftDoesNotDecrease path (granted once, when the set goes from empty to non-empty)
-		// rather than relying on vanilla's own tick-based re-granting from the forced proximity flags below -
-		// relying on vanilla's granting caused the buff to flicker on/off. ForceProximityFlags below still
-		// forces the per-enemy damage-bonus flags every tick (that's read live at hit-time, not gated to a
-		// specific tick phase, so timing there isn't an issue).
+		// Banners are a bespoke case: every banner shares one generic BuffID.MonsterBanner buff, while the
+		// per-enemy damage bonus is a separate non-buff bool array (Main.SceneMetrics.NPCBannerBuff) that
+		// vanilla recomputes from tile proximity every tick. This stores which individual banner *items* are
+		// toggled on. The shared BuffID.MonsterBanner buff itself goes through the normal
+		// SetInfinite/TimeLeftDoesNotDecrease path, granted once when the set goes from empty to non-empty;
+		// letting vanilla re-grant it from the forced proximity flags instead made the buff flicker on and
+		// off. ForceProximityFlags still forces the per-enemy damage-bonus flags every tick, which is read
+		// live at hit time rather than in a specific tick phase.
 		private static readonly HashSet<int> ToggledBanners = new();
 
-		// Garden Gnome's luck bonus is not a real Player.buffType/BuffID at all (confirmed: no buff icon,
-		// implemented purely via the Player.HasGardenGnomeNearby proximity bool) - same per-tick forcing
-		// approach as banners, just a single bool instead of a set.
+		// Garden Gnome's luck bonus is not a real Player.buffType/BuffID at all - no buff icon, implemented
+		// purely via the Player.HasGardenGnomeNearby proximity bool - so it gets the same per-tick forcing
+		// as banners, just a single bool instead of a set.
 		private static bool _gardenGnomeInfinite;
+
+		private static readonly Color InfiniteHighlightColor = new(255, 140, 0);
 
 		public static ModKeybind ToggleInfiniteBuffKeybind { get; private set; }
 
@@ -81,18 +92,13 @@ namespace YarnResearch.Common.Systems
 			};
 			On_Player.DelBuff += _delBuffHook;
 
-			// Draws a tinted slot-background texture behind items shown as infinite-toggled in the Journey
-			// Mode Duplication panel (ItemSlot.Context.CreativeInfinite) - scoped to that one context
-			// deliberately, rather than GlobalItem.PreDrawInInventory everywhere, per the plan's design
-			// (avoids a distracting highlight in normal inventory/hotbar/chests). Hooks DrawItemIcon
-			// specifically (not the outer Draw method) since it hands us the icon's exact center point and
-			// size limit directly, unlike Draw's own background-rectangle geometry. Pattern (draw
-			// TextureAssets.InventoryBack* directly with an arbitrary Color tint via SpriteBatch.Draw,
-			// centered/scaled by hand) confirmed via AutoTrash's own ItemSlot.cs, one of the mods the
-			// tModLoader wiki's Open-Source-Mods page names as citable reference material.
+			// Marks items shown as infinite-toggled in the Journey Mode Duplication panel. Scoped to that
+			// one slot context deliberately, rather than GlobalItem.PreDrawInInventory everywhere, to avoid
+			// a distracting highlight in the normal inventory/hotbar/chests. Hooks DrawItemIcon rather than
+			// the outer Draw because it hands us the icon's exact center point and size limit directly.
 			_drawItemIconHook = (On_ItemSlot.orig_DrawItemIcon orig, Item item, int context, SpriteBatch spriteBatch, Vector2 screenPositionForItemCenter, float scale, float sizeLimit, Color environmentColor, float itemFade, bool flip) => {
 				if (context == ItemSlot.Context.CreativeInfinite && IsItemInfinite(item))
-					DrawInfiniteBackground(spriteBatch, screenPositionForItemCenter, sizeLimit * scale);
+					SlotTint.Draw(spriteBatch, screenPositionForItemCenter, sizeLimit * scale, InfiniteHighlightColor);
 
 				return orig(item, context, spriteBatch, screenPositionForItemCenter, scale, sizeLimit, environmentColor, itemFade, flip);
 			};
@@ -114,59 +120,52 @@ namespace YarnResearch.Common.Systems
 			}
 		}
 
-		private static readonly Color InfiniteHighlightColor = new(255, 140, 0);
-
-		// iconSize is the icon's own max draw box (sizeLimit * scale) - the background is drawn somewhat
-		// larger than that so it reads as the tile behind the icon rather than a same-size copy peeking
-		// out from the edges; tune BackgroundPadding here if it looks too big/small in practice.
-		private const float BackgroundPadding = 1.6f;
-
-		private static void DrawInfiniteBackground(SpriteBatch spriteBatch, Vector2 center, float iconSize)
+		// Single source of truth for what an item counts as here, so the tooltip gate, the auto-default on
+		// research, and the manual toggle can't disagree about a given item. BuffType is 0 for Garden Gnome,
+		// which has no buff of its own.
+		private static (BuffItemKind Kind, int BuffType) Classify(Item item)
 		{
-			Texture2D background = TextureAssets.InventoryBack9.Value;
-			float backgroundScale = iconSize * BackgroundPadding / background.Width;
-			var origin = new Vector2(background.Width, background.Height) / 2f;
-			spriteBatch.Draw(background, center, null, InfiniteHighlightColor, 0f, origin, backgroundScale, SpriteEffects.None, 0f);
+			if (item.type == ItemID.GardenGnome)
+				return (BuffItemKind.GardenGnome, 0);
+
+			if (IsBannerItem(item.type))
+				return (BuffItemKind.Banner, BuffID.MonsterBanner);
+
+			if (PlacedBuffItems.TryGetValue(item.type, out int placedBuffType))
+				return (BuffItemKind.Placed, placedBuffType);
+
+			// item.consumable, not item.potion: item.potion only marks items that inflict Potion Sickness,
+			// which excludes non-sickness buff potions (Builder, Flipper, Torch God's Flavor, etc.) - those
+			// still need to toggle like any other consumed buff item.
+			if (item.consumable && item.buffType > 0)
+				return (BuffItemKind.Consumable, item.buffType);
+
+			return (BuffItemKind.None, 0);
 		}
 
-		// Whether hoverItem is something TryToggle would actually act on - used to gate the tooltip hint,
+		// The gate every entry point shares: the feature is on, and the item is researched.
+		private static bool BuffTogglesAllowed(Item item) =>
+			ModContent.GetInstance<YarnResearchConfig>().InfiniteResearchedBuffs &&
+			ResearchCascadeSystem.IsResearched(item.type);
+
+		// Whether hoverItem is something TryToggle would act on - used to gate the tooltip hint,
 		// independent of its current on/off state.
-		public static bool IsToggleable(Item item)
-		{
-			var config = ModContent.GetInstance<YarnResearchConfig>();
-			if (!config.InfiniteResearchedBuffs)
-				return false;
-
-			if (!ResearchCascadeSystem.IsResearched(item.type))
-				return false;
-
-			if (item.type == ItemID.GardenGnome || IsBannerItem(item.type) || PlacedBuffItems.ContainsKey(item.type))
-				return true;
-
-			if (item.buffType <= 0)
-				return false;
-
-			// item.consumable (not item.potion) is the correct gate here: item.potion only marks items that
-			// inflict Potion Sickness, which excludes non-sickness buff potions (Builder, Flipper, Torch
-			// God's Flavor, etc.) - those still need to default-toggle like any other consumed buff item.
-			return item.consumable;
-		}
+		public static bool IsToggleable(Item item) =>
+			BuffTogglesAllowed(item) && Classify(item).Kind != BuffItemKind.None;
 
 		public static bool IsItemInfinite(Item item)
 		{
 			if (item == null || item.IsAir)
 				return false;
 
-			if (item.type == ItemID.GardenGnome)
-				return _gardenGnomeInfinite;
+			(BuffItemKind kind, int buffType) = Classify(item);
 
-			if (IsBannerItem(item.type))
-				return ToggledBanners.Contains(item.type);
-
-			if (PlacedBuffItems.TryGetValue(item.type, out int placedBuffType))
-				return IsInfinite(placedBuffType);
-
-			return item.buffType > 0 && IsInfinite(item.buffType);
+			return kind switch {
+				BuffItemKind.None => false,
+				BuffItemKind.GardenGnome => _gardenGnomeInfinite,
+				BuffItemKind.Banner => ToggledBanners.Contains(item.type),
+				_ => IsInfinite(buffType),
+			};
 		}
 
 		public override void UpdateUI(GameTime gameTime)
@@ -192,17 +191,17 @@ namespace YarnResearch.Common.Systems
 			return Main.CreativeMenu.Enabled && !Main.CreativeMenu.Blocked;
 		}
 
-		// ItemID.Sets.BannerStrength[type].Enabled is NOT a "is this item a banner" flag - it's true for
-		// every item (it gates the per-item damage-scaling curve override, unrelated to banner-ness) - so
-		// the actual banner check has to go through NPCLoader's own item<->banner mapping instead, the same
-		// one ModBannerTile.NearbyEffects itself uses (returns -1 for anything that isn't a banner item).
+		// ItemID.Sets.BannerStrength[type].Enabled is NOT an "is this item a banner" flag - it's true for
+		// every item, gating the per-item damage-scaling curve override - so the actual banner check goes
+		// through NPCLoader's own item<->banner mapping, the same one ModBannerTile.NearbyEffects uses.
+		// Returns -1 for anything that isn't a banner item.
 		private static bool IsBannerItem(int itemType) => NPCLoader.BannerItemToNPC(itemType) >= 0;
 
-		// Called every tick from YarnResearchPlayer.PostUpdateMiscEffects, after vanilla's own tile-proximity
-		// scan has run for this tick - re-forces the bespoke proximity flags for banners/Garden Gnome so
-		// vanilla's own buff-granting/luck-calculation logic (which reads these later the same tick) sees
-		// them as active. Both flags reset to their real proximity values every tick by vanilla itself, so
-		// this must run every tick, not just once at toggle time.
+		// Called every tick from YarnResearchPlayer.PreModifyLuck, after vanilla's own tile-proximity scan
+		// has run for this tick - re-forces the bespoke proximity flags for banners/Garden Gnome so
+		// vanilla's own buff-granting and luck calculation (which read these later the same tick) see them
+		// as active. Vanilla resets both to their real proximity values every tick, so this must run every
+		// tick, not just once at toggle time.
 		public static void ForceProximityFlags(Player player)
 		{
 			if (_gardenGnomeInfinite)
@@ -219,52 +218,46 @@ namespace YarnResearch.Common.Systems
 			}
 		}
 
+		// Auto-default on research: a newly-researched buff item turns itself on, unless the player has
+		// already made an explicit decision about that buffType.
 		public static void HandleItemResearched(Item item)
 		{
-			var config = ModContent.GetInstance<YarnResearchConfig>();
-			if (!config.InfiniteResearchedBuffs)
+			if (!BuffTogglesAllowed(item))
 				return;
 
-			if (!ResearchCascadeSystem.IsResearched(item.type))
-				return;
+			(BuffItemKind kind, int buffType) = Classify(item);
 
-			if (item.type == ItemID.GardenGnome) {
-				_gardenGnomeInfinite = true;
-				return;
-			}
+			switch (kind) {
+				case BuffItemKind.GardenGnome:
+					_gardenGnomeInfinite = true;
+					break;
 
-			if (IsBannerItem(item.type)) {
-				if (!ToggledBanners.Contains(item.type)) {
-					bool granted = ToggledBanners.Count > 0 || SetInfinite(Main.LocalPlayer, BuffID.MonsterBanner, on: true);
-					if (granted)
+				case BuffItemKind.Banner:
+					if (!ToggledBanners.Contains(item.type) &&
+						(ToggledBanners.Count > 0 || SetInfinite(Main.LocalPlayer, BuffID.MonsterBanner, on: true)))
 						ToggledBanners.Add(item.type);
-				}
-				return;
-			}
+					break;
 
-			if (PlacedBuffItems.TryGetValue(item.type, out int placedBuffType)) {
-				if (!InfiniteBuffTypes.ContainsKey(placedBuffType))
-					SetInfinite(Main.LocalPlayer, placedBuffType, on: true);
-				return;
-			}
+				case BuffItemKind.Placed:
+					if (!InfiniteBuffTypes.ContainsKey(buffType))
+						SetInfinite(Main.LocalPlayer, buffType, on: true);
+					break;
 
-			if (ItemID.Sets.IsFood[item.type] && item.buffType > 0) {
-				HandleFoodResearched(item.buffType);
-				return;
-			}
-
-			// item.consumable (not item.potion) is the correct gate here: item.potion only marks items that
-			// inflict Potion Sickness, which excludes non-sickness buff potions (Builder, Flipper, Torch
-			// God's Flavor, etc.) - those still need to default-toggle like any other consumed buff item.
-			if (item.consumable && item.buffType > 0) {
-				// Tipsy is vanilla's one mixed-effect buff registered as a debuff (Main.debuff[BuffID.Tipsy]
-				// = true), so right-click dismissal never works on it the way it does for other potion
-				// buffs - defaults OFF instead of the usual default-ON so it isn't stuck permanently active.
-				if (!InfiniteBuffTypes.ContainsKey(item.buffType))
-					SetInfinite(Main.LocalPlayer, item.buffType, on: item.buffType != BuffID.Tipsy);
+				case BuffItemKind.Consumable:
+					if (ItemID.Sets.IsFood[item.type])
+						HandleFoodResearched(buffType);
+					else if (!InfiniteBuffTypes.ContainsKey(buffType))
+						// Tipsy is vanilla's one mixed-effect buff registered as a debuff
+						// (Main.debuff[BuffID.Tipsy] = true), so right-click dismissal never works on it the
+						// way it does for other potion buffs - defaults OFF instead of the usual default-ON
+						// so it can't get stuck permanently active.
+						SetInfinite(Main.LocalPlayer, buffType, on: buffType != BuffID.Tipsy);
+					break;
 			}
 		}
 
+		// Well Fed comes in three escalating tiers that share no buffType - only the best researched tier
+		// should be held, so a better one turns the others off.
 		private static void HandleFoodResearched(int buffType)
 		{
 			int tierRank = Array.IndexOf(WellFedTierOrder, buffType);
@@ -292,49 +285,41 @@ namespace YarnResearch.Common.Systems
 		}
 
 		// Manual hotkey entry point - unlike HandleItemResearched's auto-default, a refused toggle-ON here
-		// gives chat feedback (see SetInfinite/CanGrantMonsterBanner callers) since it's a direct player action.
+		// gives chat feedback (see SetInfinite) since it's a direct player action.
 		public static void TryToggle(Item hoverItem)
 		{
-			var config = ModContent.GetInstance<YarnResearchConfig>();
-			if (!config.InfiniteResearchedBuffs)
+			if (!BuffTogglesAllowed(hoverItem))
 				return;
 
-			if (!ResearchCascadeSystem.IsResearched(hoverItem.type))
-				return;
+			(BuffItemKind kind, int buffType) = Classify(hoverItem);
 
-			if (hoverItem.type == ItemID.GardenGnome) {
-				_gardenGnomeInfinite = !_gardenGnomeInfinite;
-				return;
+			switch (kind) {
+				case BuffItemKind.GardenGnome:
+					_gardenGnomeInfinite = !_gardenGnomeInfinite;
+					break;
+
+				case BuffItemKind.Banner:
+					// The shared buff is granted with the first toggled banner and dropped with the last.
+					if (ToggledBanners.Remove(hoverItem.type)) {
+						if (ToggledBanners.Count == 0)
+							SetInfinite(Main.LocalPlayer, BuffID.MonsterBanner, on: false);
+					}
+					else if (ToggledBanners.Count > 0 ||
+						SetInfinite(Main.LocalPlayer, BuffID.MonsterBanner, on: true, isManualToggle: true)) {
+						ToggledBanners.Add(hoverItem.type);
+					}
+					break;
+
+				case BuffItemKind.Placed:
+				case BuffItemKind.Consumable:
+					SetInfinite(Main.LocalPlayer, buffType, on: !InfiniteBuffTypes.GetValueOrDefault(buffType),
+						isManualToggle: true);
+					break;
 			}
-
-			if (IsBannerItem(hoverItem.type)) {
-				if (ToggledBanners.Remove(hoverItem.type)) {
-					if (ToggledBanners.Count == 0)
-						SetInfinite(Main.LocalPlayer, BuffID.MonsterBanner, on: false);
-				}
-				else if (ToggledBanners.Count > 0 || SetInfinite(Main.LocalPlayer, BuffID.MonsterBanner, on: true, isManualToggle: true)) {
-					ToggledBanners.Add(hoverItem.type);
-				}
-
-				return;
-			}
-
-			if (PlacedBuffItems.TryGetValue(hoverItem.type, out int placedBuffType)) {
-				bool placedCurrentlyOn = InfiniteBuffTypes.GetValueOrDefault(placedBuffType);
-				SetInfinite(Main.LocalPlayer, placedBuffType, on: !placedCurrentlyOn, isManualToggle: true);
-				return;
-			}
-
-			if (hoverItem.buffType <= 0)
-				return;
-
-			bool currentlyOn = InfiniteBuffTypes.GetValueOrDefault(hoverItem.buffType);
-			SetInfinite(Main.LocalPlayer, hoverItem.buffType, on: !currentlyOn, isManualToggle: true);
 		}
 
 		// Returns whether the toggle was actually applied - false means a toggle-ON was refused by the
-		// buff-cap safeguard (see callers: banner toggling needs to know this to decide whether to add the
-		// banner to ToggledBanners).
+		// buff-cap safeguard, which banner toggling needs to know before adding to ToggledBanners.
 		public static bool SetInfinite(Player player, int buffType, bool on, bool isManualToggle = false)
 		{
 			if (on && IsBuffBarFull(player) && player.FindBuffIndex(buffType) < 0) {
@@ -373,16 +358,15 @@ namespace YarnResearch.Common.Systems
 			return true;
 		}
 
-		// Only categories 1-2 (potions/food) auto-untoggle on removal - a category-3 (placed item) buff can
-		// legitimately expire via a real DelBuff call on leaving proximity, which must NOT be treated as a
-		// dismiss (see plan's "Detecting dismissal" section). BuffID.MonsterBanner is the one category-3
-		// exception: since it's actively held via TimeLeftDoesNotDecrease (not proximity-dependent) once any
-		// banner is toggled on, any DelBuff on it can only be a deliberate right-click dismiss - clears
-		// every toggled banner to match. Confirmed live 2026-08-27: right-clicking a toggled Cozy Fire (the
-		// Campfire buff) never calls Player.DelBuff at all, even once, across several attempts - this isn't
-		// something our TimeLeftDoesNotDecrease flag is blocking, vanilla simply doesn't wire proximity/aura
-		// buffs to the right-click-dismiss UI in the first place. The mod's own toggle hotkey is therefore
-		// the only way to turn these off, which is already correct - no further fix needed or possible here.
+		// Only potion/food buffs auto-untoggle on removal - a placed-item buff can legitimately expire via a
+		// real DelBuff call on leaving proximity, which must not be read as a dismiss. BuffID.MonsterBanner
+		// is the one exception: it's actively held via TimeLeftDoesNotDecrease rather than being
+		// proximity-dependent once any banner is toggled on, so a DelBuff on it can only be a deliberate
+		// right-click dismiss, and clears every toggled banner to match.
+		//
+		// Vanilla never wires proximity/aura buffs to the right-click-dismiss UI at all (right-clicking a
+		// toggled Cozy Fire never reaches Player.DelBuff), so the mod's own toggle hotkey is the only way to
+		// turn those off.
 		public static void HandleDismiss(int buffType)
 		{
 			if (!InfiniteBuffTypes.GetValueOrDefault(buffType))
@@ -400,10 +384,11 @@ namespace YarnResearch.Common.Systems
 			Main.buffNoTimeDisplay[buffType] = false;
 		}
 
-		// Called from YarnResearchPlayer.OnRespawn and OnEnterWorld - re-grants every toggled-on buffType the
-		// player doesn't currently have. Banners/Garden Gnome need no special handling here - ForceProximityFlags
-		// runs every tick regardless, including the tick right after respawn or entering the world.
-		public static void RegrantOnRespawn(Player player)
+		// Re-grants every toggled-on buffType the player doesn't currently have. Called on respawn and on
+		// entering the world: LoadWorldData restores the bookkeeping (the dictionary,
+		// TimeLeftDoesNotDecrease, buffNoTimeDisplay) but never calls AddBuff. Banners/Garden Gnome need no
+		// handling here - ForceProximityFlags runs every tick regardless.
+		public static void RegrantToggledBuffs(Player player)
 		{
 			foreach (var pair in InfiniteBuffTypes.ToArray()) {
 				if (!pair.Value)

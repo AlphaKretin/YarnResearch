@@ -62,6 +62,10 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 		private static PowerStripUIElement _yarnStrip;
 		private static UICreativePowersMenu _menu;
 
+		// Shown by DrawTooltip while _button is hovered - not GroupOptionButton's own Description field,
+		// since our button is built with description: null (see AppendButton).
+		private static LocalizedText _tooltipText;
+
 		private static HeldItemsActionPower _heldItemsPower;
 		private static CascadeActionPower _cascadePower;
 		private static FreeCraftingTogglePower _freeCraftingPower;
@@ -90,7 +94,7 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 
 		public override void SetStaticDefaults()
 		{
-			TooltipText = Mod.GetLocalization($"{nameof(JourneyMenuTriggersButton)}.Tooltip");
+			_tooltipText = Mod.GetLocalization($"{nameof(JourneyMenuTriggersButton)}.Tooltip");
 		}
 
 		public override void Unload()
@@ -161,10 +165,6 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 				power.PerTickUpdate();
 		}
 
-		// Shown by DrawTooltip while _button is hovered - not GroupOptionButton's own Description field,
-		// since our button is built with description: null (see AppendButton).
-		private static LocalizedText TooltipText;
-
 		private static List<UIElement> AppendButton(On_UICreativePowersMenu.orig_CreateMainPowerStrip orig, UICreativePowersMenu self)
 		{
 			_menu = self;
@@ -191,14 +191,14 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 			button.Height.Set(lastVanillaButton.Height.Pixels, lastVanillaButton.Height.Percent);
 
 			Main.instance.LoadItem(ItemID.UnluckyYarn);
-			var icon = new ItemIconButton(TextureAssets.Item[ItemID.UnluckyYarn], hoverText: null, drawBackground: false, drawDropShadow: true) {
+			var icon = new ItemIconButton(TextureAssets.Item[ItemID.UnluckyYarn], drawDropShadow: true) {
 				IgnoresMouseInteraction = true,
 			};
 			icon.Width.Set(0f, 1f);
 			icon.Height.Set(0f, 1f);
 			button.Append(icon);
 
-			CopySelectionStateFields(button, lastVanillaButton);
+			CopyStyleFrom(lastVanillaButton, button);
 
 			// Registering into _mainCategory.Buttons (the same dictionary CreateSubcategoryButton takes
 			// as a parameter) is what lets vanilla's own per-frame logic keep this button's _currentOption
@@ -234,7 +234,7 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 			orig(self, spriteBatch);
 
 			if (_button != null && _button.IsMouseHovering)
-				Main.instance.MouseText(TooltipText.Value);
+				Main.instance.MouseText(_tooltipText.Value);
 
 			if (_yarnStrip == null)
 				return;
@@ -245,33 +245,36 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 			}
 		}
 
-		// A real selected vanilla button has two fields beyond opacity that a fresh GroupOptionButton
-		// doesn't: ShowHighlightWhenSelected (false) and _UseOverrideColors + the override picked/unpicked
-		// colors and opacities (real values, not unused defaults) - both needed for the selection
-		// highlight to cover the whole button instead of just part of it. Neither has a public setter.
-		private static void CopySelectionStateFields(GroupOptionButton<int> ours, UIElement vanilla)
-		{
-			CopyField("ShowHighlightWhenSelected", ours, vanilla);
-			CopyField("_UseOverrideColors", ours, vanilla);
-			CopyField("_overrideUnpickedColor", ours, vanilla);
-			CopyField("_overridePickedColor", ours, vanilla);
-			CopyField("_overrideOpacityUnpicked", ours, vanilla);
-			CopyField("_overrideOpacityPicked", ours, vanilla);
-		}
+		// What a fresh GroupOptionButton is missing compared to a real vanilla one: the highlight flag, plus
+		// the override colour/opacity set (real values, not the unused defaults). All of them are needed for
+		// the selection highlight to cover the whole button rather than part of it, and none has a public
+		// setter.
+		private static readonly string[] SelectionStyleFields = {
+			"ShowHighlightWhenSelected",
+			"_UseOverrideColors",
+			"_overrideUnpickedColor",
+			"_overridePickedColor",
+			"_overrideOpacityUnpicked",
+			"_overrideOpacityPicked",
+		};
 
-		// Resolves the field separately on each side: a toggle's GroupOptionButton<bool> and an action
-		// button's GroupOptionButton<int> are distinct runtime types, so a FieldInfo from one can't read or
-		// write the other. Every field copied here holds a bool, Color, or float, none of which depend on
-		// the option type.
-		private static void CopyField(string fieldName, UIElement ours, UIElement vanilla)
+		// The template must be a real button of the matching kind: a category button for the category
+		// button, an instant-action or toggle button for a strip button.
+		private static void CopyStyleFrom(UIElement template, UIElement ours)
 		{
+			// Each field is resolved separately on each side: a toggle's GroupOptionButton<bool> and an
+			// action button's GroupOptionButton<int> are distinct runtime types, so a FieldInfo from one
+			// can't read or write the other. Every field here holds a bool, Color, or float, none of which
+			// depend on the option type.
 			const BindingFlags flags = BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance;
 
-			FieldInfo target = ours.GetType().GetField(fieldName, flags);
-			FieldInfo source = vanilla.GetType().GetField(fieldName, flags);
+			foreach (string fieldName in SelectionStyleFields) {
+				FieldInfo target = ours.GetType().GetField(fieldName, flags);
+				FieldInfo source = template.GetType().GetField(fieldName, flags);
 
-			if (target != null && source != null)
-				target.SetValue(ours, source.GetValue(vanilla));
+				if (target != null && source != null)
+					target.SetValue(ours, source.GetValue(template));
+			}
 		}
 
 		private static void ShowYarnStrip(On_UICreativePowersMenu.orig_RefreshElementsOrder orig, UICreativePowersMenu self)
@@ -283,7 +286,7 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 				return;
 
 			if (_yarnStrip == null) {
-				_yarnStrip = BuildYarnStrip();
+				BuildYarnStrip();
 
 				// PowerStripUIElement's constructor takes no position - real category strips must be
 				// positioned by their caller. Time Powers is the closest sibling to our own strip's shape
@@ -302,62 +305,33 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 			container.Append(_yarnStrip);
 		}
 
-		// A real vanilla instant-action button (StartDayImmediately, from the Time strip) to copy known
-		// styling fields from onto our own action buttons - see CopyActionButtonStyleFields. Chosen over
-		// the category-button sibling used for the YARN category button itself because these are one-shot
-		// action buttons (not persistent-selection tabs), and StartDayImmediately is vanilla's own closest
-		// example of that same kind of button.
+		// A real vanilla instant-action button (StartDayImmediately, from the Time strip), the closest
+		// vanilla equivalent of this mod's one-shot action buttons - unlike the category button, which is a
+		// persistent-selection tab.
 		private static UIElement GetActionButtonTemplate() =>
-			_actionButtonTemplate ??= FindTimeStripButton(CreativePowerManager.Instance.GetPowerId<CreativePowers.StartDayImmediately>());
+			_actionButtonTemplate ??= FindTimeStripButton(button =>
+				button is GroupOptionButton<int> intButton &&
+				(int)_myOptionField.GetValue(intButton) == CreativePowerManager.Instance.GetPowerId<CreativePowers.StartDayImmediately>());
 
-		// A toggle button stays rendered as picked while it's on, which an instant-action button never does,
-		// so it takes its colours from vanilla's own toggle instead.
+		// A toggle stays rendered as picked while it's on, which an instant-action button never does, so it
+		// takes its colours from vanilla's own toggle instead. Vanilla's toggles are GroupOptionButton<bool>
+		// and can't be found by power id the way an int button can - _myOption is just true on every one of
+		// them - but the Time strip's first bool button is the freeze-time toggle, the only one there whose
+		// picked colour is the yellow active tint rather than the action buttons' blue.
 		private static UIElement GetToggleButtonTemplate() =>
-			_toggleButtonTemplate ??= FindTimeStripToggleButton();
+			_toggleButtonTemplate ??= FindTimeStripButton(button => button is GroupOptionButton<bool>);
 
-		private static UIElement FindTimeStripButton(ushort powerId)
+		private static UIElement FindTimeStripButton(Func<UIElement, bool> match)
 		{
 			var elements = (List<UIElement>)_createTimePowerStripMethod.Invoke(_menu, null);
-
-			foreach (UIElement el in elements) {
-				if (el is GroupOptionButton<int> button && (int)_myOptionField.GetValue(button) == powerId)
-					return button;
-			}
-
-			return null;
+			return elements.Find(element => match(element));
 		}
 
-		// Vanilla's toggles are GroupOptionButton<bool>, so they can't be found by power id the way an int
-		// button can - _myOption is just true on every one of them. A live dump of the real Time strip found
-		// five of them followed by one GroupOptionButton<int>, with the first (the freeze-time toggle) the
-		// only one whose _overridePickedColor is the yellow active tint rather than the four action buttons'
-		// blue - so the first bool button in the strip is the toggle to copy.
-		private static UIElement FindTimeStripToggleButton()
-		{
-			var elements = (List<UIElement>)_createTimePowerStripMethod.Invoke(_menu, null);
-
-			foreach (UIElement el in elements) {
-				if (el is GroupOptionButton<bool>)
-					return el;
-			}
-
-			return null;
-		}
-
-		// Same missing fields as CopySelectionStateFields above, sourced from a real button of the matching
-		// kind (instant-action or toggle) instead of a category button.
 		private static void CopyActionButtonStyleFields(AYarnPower power)
 		{
 			UIElement template = power is AYarnTogglePower ? GetToggleButtonTemplate() : GetActionButtonTemplate();
-			if (template == null)
-				return;
-
-			CopyField("ShowHighlightWhenSelected", power.ButtonElement, template);
-			CopyField("_UseOverrideColors", power.ButtonElement, template);
-			CopyField("_overrideUnpickedColor", power.ButtonElement, template);
-			CopyField("_overridePickedColor", power.ButtonElement, template);
-			CopyField("_overrideOpacityUnpicked", power.ButtonElement, template);
-			CopyField("_overrideOpacityPicked", power.ButtonElement, template);
+			if (template != null)
+				CopyStyleFrom(template, power.ButtonElement);
 		}
 
 		private static T RegisterPower<T>(string configName) where T : ICreativePower, new()
@@ -366,7 +340,8 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 			return CreativePowerManager.Instance.GetPower<T>();
 		}
 
-		private static PowerStripUIElement BuildYarnStrip()
+		// Registers every power, builds its button, and assembles them into _yarnStrip.
+		private static void BuildYarnStrip()
 		{
 			_heldItemsPower = RegisterPower<HeldItemsActionPower>("yarn_helditems");
 			_cascadePower = RegisterPower<CascadeActionPower>("yarn_cascade");
@@ -408,8 +383,6 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 			SetSlotRectangle(_heldItemsPower.ButtonElement, 1);
 			SetSlotRectangle(_cascadePower.ButtonElement, 2);
 			LayoutTrailingButtons();
-
-			return _yarnStrip;
 		}
 
 		// _sacrificePower/_clearPower's slot shifts up by one whenever the (conditionally shown) shimmer

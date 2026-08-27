@@ -20,24 +20,29 @@ namespace YarnResearch.Common.Systems
 	// own CheckLiveConditionEdges - ever observes the fake values.
 	public class FreeCraftingSystem : ModSystem
 	{
+		// One faked player flag: how to read its real value and how to write it, so ApplyFreeCrafting can
+		// restore exactly what it overwrote without a separate hand-maintained save/restore list.
+		private readonly record struct ProximityFlag(Func<Player, bool> Read, Action<Player, bool> Write);
+
 		// TML's AddRecipe rewrite converts exactly six legacy needXxx fields into recipe Conditions
 		// (Recipe.cs.patch's ReplaceCondition calls). Five of them stand for somewhere the player could
 		// physically stand and are faked here; the sixth, ZenithWorld (from needMechdusa), is a world-seed
 		// property rather than a place, so it keeps blocking its recipes. Every other Condition with a proxy
 		// registered in ResearchCascadeSystem exists for NPC shop entries and never gates a vanilla recipe -
 		// LogUnfakeableProxiedConditions reports any that turn out to.
-		private static readonly Dictionary<Condition, Action<Player>> ProximityConditionFakes = new() {
-			[Condition.NearWater] = player => player.adjWaterSource = true,
-			[Condition.NearLava] = player => player.adjLava = true,
-			[Condition.NearHoney] = player => player.adjHoney = true,
-			[Condition.InSnow] = player => player.ZoneSnow = true,
-			[Condition.InGraveyard] = player => player.ZoneGraveyard = true,
+		private static readonly Dictionary<Condition, ProximityFlag> ProximityConditionFakes = new() {
+			[Condition.NearWater] = new(p => p.adjWaterSource, (p, on) => p.adjWaterSource = on),
+			[Condition.NearLava] = new(p => p.adjLava, (p, on) => p.adjLava = on),
+			[Condition.NearHoney] = new(p => p.adjHoney, (p, on) => p.adjHoney = on),
+			[Condition.InSnow] = new(p => p.ZoneSnow, (p, on) => p.ZoneSnow = on),
+			[Condition.InGraveyard] = new(p => p.ZoneGraveyard, (p, on) => p.ZoneGraveyard = on),
 		};
 
-		// Which adjTile entries this call actually flipped, so the restore only clears those rather than
-		// stomping the tiles the player is genuinely standing next to. Reused across calls (FindRecipes is
-		// single-threaded UI-path work) to keep an allocation off a method that runs on every inventory change.
+		// What this call actually overwrote, so the restore only touches those rather than stomping the
+		// tiles/biomes the player is genuinely in. Reused across calls (FindRecipes is single-threaded
+		// UI-path work) to keep allocations off a method that runs on every inventory change.
 		private static readonly List<int> FlippedTiles = new();
+		private static readonly List<(ProximityFlag Flag, bool Original)> FlippedFlags = new();
 
 		public override void Load()
 		{
@@ -69,8 +74,7 @@ namespace YarnResearch.Common.Systems
 			modPlayer.FreeCraftingEnabled = !modPlayer.FreeCraftingEnabled;
 
 			// Rebuild the available-recipe list immediately rather than relying on whatever makes vanilla
-			// refresh it next (Recipe.FindRecipes, the old explicit trigger, was removed in 1.4.5), so the
-			// crafting menu reflects the toggle on the same click.
+			// refresh it next, so the crafting menu reflects the toggle on the same click.
 			Recipe.UpdateRecipeList();
 		}
 
@@ -82,12 +86,8 @@ namespace YarnResearch.Common.Systems
 			}
 
 			Player player = Main.LocalPlayer;
-			bool adjWaterSource = player.adjWaterSource;
-			bool adjLava = player.adjLava;
-			bool adjHoney = player.adjHoney;
-			bool zoneSnow = player.ZoneSnow;
-			bool zoneGraveyard = player.ZoneGraveyard;
 			FlippedTiles.Clear();
+			FlippedFlags.Clear();
 
 			try {
 				foreach (int tile in ResearchCascadeSystem.ResearchedStations)
@@ -99,9 +99,12 @@ namespace YarnResearch.Common.Systems
 				if (ResearchCascadeSystem.EverNearAltar)
 					FakeAdjacentTile(player, TileID.DemonAltar);
 
-				foreach ((Condition condition, Action<Player> fake) in ProximityConditionFakes) {
-					if (ResearchCascadeSystem.ConditionProxyResearched(condition))
-						fake(player);
+				foreach ((Condition condition, ProximityFlag flag) in ProximityConditionFakes) {
+					if (!ResearchCascadeSystem.ConditionProxyResearched(condition))
+						continue;
+
+					FlippedFlags.Add((flag, flag.Read(player)));
+					flag.Write(player, true);
 				}
 
 				orig();
@@ -110,12 +113,11 @@ namespace YarnResearch.Common.Systems
 				foreach (int tile in FlippedTiles)
 					player.adjTile[tile] = false;
 
+				foreach ((ProximityFlag flag, bool original) in FlippedFlags)
+					flag.Write(player, original);
+
 				FlippedTiles.Clear();
-				player.adjWaterSource = adjWaterSource;
-				player.adjLava = adjLava;
-				player.adjHoney = adjHoney;
-				player.ZoneSnow = zoneSnow;
-				player.ZoneGraveyard = zoneGraveyard;
+				FlippedFlags.Clear();
 			}
 		}
 

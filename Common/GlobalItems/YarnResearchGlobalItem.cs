@@ -29,9 +29,8 @@ namespace YarnResearch.Common.GlobalItems
 			PrefixPickerPopupDuplicateHintText = Mod.GetLocalization($"{nameof(YarnResearchGlobalItem)}.PrefixPickerPopupDuplicateHint");
 		}
 
-		// Journey duplication doesn't roll a prefix through ChoosePrefix (the duplicate is a straight
-		// Clone() of the source item), so this is the only hook point that can override it - see the
-		// design plan for the full investigation.
+		// Journey duplication doesn't roll a prefix through ChoosePrefix - the duplicate is a straight
+		// Clone() of the source item - so this is the only hook point that can override it.
 		public override void OnCreated(Item item, ItemCreationContext context)
 		{
 			if (context is not JourneyDuplicationItemCreationContext)

@@ -33,10 +33,9 @@ namespace YarnResearch.Common.UI.PrefixPickerUI
 					TryAdd(item, category, modPrefix.Type, results, seen);
 			}
 
-			// No public API exposes a prefix's value multiplier directly (ModPrefix.ModifyValue only runs
-			// as a side effect of actually applying the prefix) - GetPrefixValue below rolls it onto a
-			// scratch item of the same type and reads back the resulting Item.value, which is the actual
-			// public mechanism rather than a guess at internal formulas.
+			// No public API exposes a prefix's value multiplier directly (ModPrefix.ModifyValue only runs as
+			// a side effect of actually applying the prefix), so GetPrefixValue rolls it onto a scratch item
+			// of the same type and reads back the resulting Item.value.
 			results.Sort((a, b) => b.Value.CompareTo(a.Value));
 			return results;
 		}
