@@ -73,6 +73,20 @@ YarnResearchGlobalItem: {
 	PrefixPickerPopupDuplicateHint: Right-click to duplicate once
 }
 
+ResearchCascadeSystem: {
+	Notification: "{0}: {1}"
+
+	Origins: {
+		Held: Auto-researched
+		Craftable: Auto-crafted
+		BiomeTorch: Auto-converted
+		Shimmer: Auto-discovered
+		Crate: Auto-unpacked
+		Sacrifice: Sacrificed
+		Shop: Auto-researched from shop
+	}
+}
+
 InfiniteBuffSystem.BuffBarFull: Your buff bar is full - can't toggle this on right now
 JourneyMenuTriggersButton.Tooltip: YARN manual research triggers
 HeldItemsActionPower.HoverText: Research Held Items

@@ -1,4 +1,6 @@
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
+using ReLogic.Content;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -11,6 +13,7 @@ using Terraria.GameContent.Creative;
 using Terraria.GameContent.ItemDropRules;
 using Terraria.GameContent.UI.Chat;
 using Terraria.ID;
+using Terraria.Localization;
 using Terraria.ModLoader;
 using Terraria.ModLoader.IO;
 using YarnResearch.Common.Configs;
@@ -32,16 +35,14 @@ namespace YarnResearch.Common.Systems
 			Shop,
 		}
 
-		// Chat label per origin, parallel to the enum above.
-		private static readonly string[] NotificationLabels = {
-			"Auto-researched",
-			"Auto-crafted",
-			"Auto-converted",
-			"Auto-discovered",
-			"Auto-unpacked",
-			"Sacrificed",
-			"Auto-researched from shop",
-		};
+		// Chat label per origin, keyed by enum member name so the two can't drift out of order.
+		private static readonly LocalizedText[] NotificationLabels =
+			Enum.GetValues<ResearchOrigin>().Select(origin => Localization($"Origins.{origin}")).ToArray();
+
+		private static readonly LocalizedText NotificationText = Localization("Notification");
+
+		private static LocalizedText Localization(string key) =>
+			ModContent.GetInstance<YarnResearch>().GetLocalization($"{nameof(ResearchCascadeSystem)}.{key}");
 
 		// Which mechanisms a drain should run despite their config toggle being off - see DrainCascade.
 		[Flags]
@@ -224,6 +225,151 @@ namespace YarnResearch.Common.Systems
 		// for the duration of its own batch. See DrainCascade.
 		private static Mechanism _forcedMechanisms;
 
+		// Breaks one cascade down by phase so a felt hitch can be attributed to a specific piece of the
+		// machinery rather than to the cascade as a whole. Accumulation starts at BeginBatch (or at the
+		// first HandleResearched of a standalone cascade) and is reported by DrainAndLog, so it covers the
+		// pre-drain collection pass a batched trigger does as well as the drain itself. Timers nest: an
+		// indented phase in the report is a subset of the one above it, and ResearchItem is a subset of
+		// every phase that unlocks anything.
+		private static class CascadeProfile
+		{
+			internal enum Phase
+			{
+				Craftable,
+				RecipeCheck,
+				BiomeTorch,
+				TorchVariantBuild,
+				Shimmer,
+				DecraftLookup,
+				Crate,
+				CrateDropRules,
+				ResearchItem,
+				Notifications,
+				TagList,
+				NewText,
+			}
+
+			// Parallel to Phase; leading spaces mark a phase nested inside the one above it.
+			private static readonly string[] PhaseLabels = {
+				"craftable outputs",
+				"  recipe checks",
+				"biome torches",
+				"  variant table build",
+				"shimmer outputs",
+				"  decraft lookup",
+				"crate contents",
+				"  drop-rule report",
+				"CreativeUI.ResearchItem",
+				"chat notifications",
+				"  tag list build",
+				"  Main.NewText",
+			};
+
+			// Only a drain slow enough to be felt gets a breakdown - ordinary one- or two-item cascades run
+			// constantly during play and would bury the interesting runs in log noise.
+			private const double ReportThresholdMs = 25.0;
+
+			private static readonly long[] Ticks = new long[PhaseLabels.Length];
+			private static readonly int[] Calls = new int[PhaseLabels.Length];
+
+			private static long _startTimestamp;
+			private static long _startAllocatedBytes;
+			private static int _startGen0, _startGen1, _startGen2;
+			private static int _slowestStepType;
+			private static long _slowestStepTicks;
+			private static int _notifiedCount;
+
+			internal readonly ref struct Scope
+			{
+				private readonly int _phase;
+				private readonly long _start;
+
+				internal Scope(Phase phase)
+				{
+					_phase = (int)phase;
+					_start = Stopwatch.GetTimestamp();
+				}
+
+				public void Dispose()
+				{
+					Ticks[_phase] += Stopwatch.GetTimestamp() - _start;
+					Calls[_phase]++;
+				}
+			}
+
+			internal static Scope Time(Phase phase) => new(phase);
+
+			internal static void Reset()
+			{
+				Array.Clear(Ticks);
+				Array.Clear(Calls);
+				_slowestStepType = 0;
+				_slowestStepTicks = 0;
+				_notifiedCount = 0;
+
+				// Read last so the counters' own cost lands outside the measured window.
+				_startGen0 = GC.CollectionCount(0);
+				_startGen1 = GC.CollectionCount(1);
+				_startGen2 = GC.CollectionCount(2);
+				_startAllocatedBytes = GC.GetAllocatedBytesForCurrentThread();
+				_startTimestamp = Stopwatch.GetTimestamp();
+			}
+
+			// One drained type's whole slice of the drain, so a cascade dominated by a single high-fanout
+			// item (a common ingredient, a station placed by dozens of items) is visible as such.
+			internal static void NoteStep(int type, long ticks)
+			{
+				if (ticks <= _slowestStepTicks)
+					return;
+
+				_slowestStepType = type;
+				_slowestStepTicks = ticks;
+			}
+
+			internal static void NoteNotified(int count) => _notifiedCount += count;
+
+			// Called once a top-level cascade has fully finished - drain and chat notifications both - since
+			// the notification flush is outside the drain and was invisible to the drain's own timing.
+			internal static void Report()
+			{
+				if (BuildReport() is string report)
+					ModContent.GetInstance<YarnResearch>().Logger.Info(report);
+			}
+
+			// Null when the run was too fast to be worth reporting.
+			private static string BuildReport()
+			{
+				long elapsedTicks = Stopwatch.GetTimestamp() - _startTimestamp;
+				long allocatedBytes = GC.GetAllocatedBytesForCurrentThread() - _startAllocatedBytes;
+
+				if (ToMs(elapsedTicks) < ReportThresholdMs)
+					return null;
+
+				var report = new System.Text.StringBuilder();
+				report.Append($"ResearchCascadeSystem cascade profile: {ToMs(elapsedTicks):F2}ms from batch start, " +
+					$"{_notifiedCount} items announced in chat");
+
+				for (int phase = 0; phase < PhaseLabels.Length; phase++) {
+					if (Calls[phase] > 0)
+						report.Append($"\n  {PhaseLabels[phase]}: {ToMs(Ticks[phase]):F2}ms over {Calls[phase]} calls");
+				}
+
+				report.Append($"\n  allocated {allocatedBytes / 1024.0 / 1024.0:F1}MB, collections gen0 " +
+					$"{GC.CollectionCount(0) - _startGen0} / gen1 {GC.CollectionCount(1) - _startGen1} / " +
+					$"gen2 {GC.CollectionCount(2) - _startGen2}");
+
+				if (_slowestStepTicks > 0) {
+					string name = ContentSamples.ItemsByType.TryGetValue(_slowestStepType, out Item item)
+						? item.Name : _slowestStepType.ToString();
+					report.Append($"\n  slowest single drained type: {name} at {ToMs(_slowestStepTicks):F2}ms");
+				}
+
+				return report.ToString();
+			}
+
+			private static double ToMs(long ticks) => ticks * 1000.0 / Stopwatch.Frequency;
+		}
+
 		private static Dictionary<int, List<Condition>> BuildConditionsByProxyItemType()
 		{
 			var result = new Dictionary<int, List<Condition>>();
@@ -261,7 +407,12 @@ namespace YarnResearch.Common.Systems
 		// tied to Player.Update, which those partial updates skip.
 		public override void UpdateUI(GameTime gameTime)
 		{
-			if (Main.gameMenu || !ResearchCrateContentsKeybind.JustPressed)
+			if (Main.gameMenu)
+				return;
+
+			ReleaseDeferredNotifications();
+
+			if (!ResearchCrateContentsKeybind.JustPressed)
 				return;
 
 			Item hoverItem = Main.HoverItem;
@@ -381,7 +532,10 @@ namespace YarnResearch.Common.Systems
 		private static void ResearchWithOrigin(int type, ResearchOrigin origin)
 		{
 			PendingOrigins[(int)origin].Add(type);
-			CreativeUI.ResearchItem(type);
+
+			using (CascadeProfile.Time(CascadeProfile.Phase.ResearchItem))
+				CreativeUI.ResearchItem(type);
+
 			PendingOrigins[(int)origin].Remove(type);
 		}
 
@@ -454,12 +608,17 @@ namespace YarnResearch.Common.Systems
 		// decrafting returns.
 		private static void ProcessShimmerOutputs(int type)
 		{
+			using var _ = CascadeProfile.Time(CascadeProfile.Phase.Shimmer);
+
 			if (ShimmerOutputsByInput.TryGetValue(type, out int transformOutput)) {
 				AttemptShimmerResearch(transformOutput);
 				return;
 			}
 
-			int decraftRecipeIndex = ShimmerTransforms.GetDecraftingRecipeIndex(type);
+			int decraftRecipeIndex;
+			using (CascadeProfile.Time(CascadeProfile.Phase.DecraftLookup))
+				decraftRecipeIndex = ShimmerTransforms.GetDecraftingRecipeIndex(type);
+
 			if (decraftRecipeIndex < 0)
 				return;
 
@@ -475,6 +634,8 @@ namespace YarnResearch.Common.Systems
 		// owning every biome variant of it.
 		private static void ProcessBiomeTorchVariants(int type)
 		{
+			using var _ = CascadeProfile.Time(CascadeProfile.Phase.BiomeTorch);
+
 			if (!Main.LocalPlayer.unlockedBiomeTorches || !(ItemID.Sets.Torches[type] || ItemID.Sets.Campfires[type]))
 				return;
 
@@ -492,6 +653,8 @@ namespace YarnResearch.Common.Systems
 		{
 			if (BiomeTorchVariants.TryGetValue(type, out int[] cached))
 				return cached;
+
+			using var _ = CascadeProfile.Time(CascadeProfile.Phase.TorchVariantBuild);
 
 			Player player = Main.LocalPlayer;
 			bool[] realZones = BiomeTorchZones.Select(zone => zone.Get(player)).ToArray();
@@ -569,6 +732,8 @@ namespace YarnResearch.Common.Systems
 		// actually dropped. Coins and other unresearchable items are filtered out by the caller.
 		private static IEnumerable<int> GetPossibleCrateContents(int crateType)
 		{
+			using var _ = CascadeProfile.Time(CascadeProfile.Phase.CrateDropRules);
+
 			var drops = new List<DropRateInfo>();
 			var chainFeed = new DropRateInfoChainFeed(1f);
 
@@ -580,6 +745,8 @@ namespace YarnResearch.Common.Systems
 
 		private static void ProcessCrateContents(int type)
 		{
+			using var _ = CascadeProfile.Time(CascadeProfile.Phase.Crate);
+
 			foreach (int contentType in GetPossibleCrateContents(type))
 				AttemptCrateResearch(contentType);
 		}
@@ -728,7 +895,11 @@ namespace YarnResearch.Common.Systems
 			return field?.GetValue(closure) as int?;
 		}
 
-		public static void BeginBatch() => _batchQueue = new Queue<int>();
+		public static void BeginBatch()
+		{
+			CascadeProfile.Reset();
+			_batchQueue = new Queue<int>();
+		}
 
 		public static void EndBatch()
 		{
@@ -747,6 +918,7 @@ namespace YarnResearch.Common.Systems
 			}
 
 			FlushNotifications();
+			CascadeProfile.Report();
 		}
 
 		// Wraps DrainCascade with timing/counting, logged via Mod.Logger so it's cheap enough to leave
@@ -763,11 +935,12 @@ namespace YarnResearch.Common.Systems
 			stopwatch.Stop();
 
 			int researchedCount = ResearchedTypes.Count - startingCount;
-			if (stepsProcessed > 0) {
-				ModContent.GetInstance<YarnResearch>().Logger.Info(
-					$"ResearchCascadeSystem cascade: {stepsProcessed} steps processed, {researchedCount} items researched, " +
-					$"max queue depth {maxQueueDepth}, took {stopwatch.Elapsed.TotalMilliseconds:F2}ms");
-			}
+			if (stepsProcessed == 0)
+				return;
+
+			ModContent.GetInstance<YarnResearch>().Logger.Info(
+				$"ResearchCascadeSystem cascade: {stepsProcessed} steps processed, {researchedCount} items researched, " +
+				$"max queue depth {maxQueueDepth}, took {stopwatch.Elapsed.TotalMilliseconds:F2}ms");
 		}
 
 		public static void HandleResearched(int type)
@@ -793,6 +966,8 @@ namespace YarnResearch.Common.Systems
 				return;
 			}
 
+			CascadeProfile.Reset();
+
 			var queue = new Queue<int>();
 			MarkResearched(type, queue, notificationQueue);
 
@@ -805,6 +980,7 @@ namespace YarnResearch.Common.Systems
 			}
 
 			FlushNotifications();
+			CascadeProfile.Report();
 		}
 
 		public override void PostAddRecipes()
@@ -870,6 +1046,7 @@ namespace YarnResearch.Common.Systems
 		{
 			ResearchedTypes.Clear();
 			ResearchedStationTiles.Clear();
+			ClearDeferredNotifications();
 
 			foreach (HashSet<int> origins in PendingOrigins)
 				origins.Clear();
@@ -899,6 +1076,7 @@ namespace YarnResearch.Common.Systems
 			while (queue.Count > 0) {
 				int type = queue.Dequeue();
 				stepsProcessed++;
+				long stepStart = Stopwatch.GetTimestamp();
 
 				// _forcedMechanisms lets a manual trigger's drain fully resolve that mechanism's transitive
 				// chain in one call even with its toggle off. Without it, only the first layer unlocked by
@@ -918,6 +1096,8 @@ namespace YarnResearch.Common.Systems
 				if (config.AutoResearchCrateContents || _forcedMechanisms.HasFlag(Mechanism.Crate))
 					ProcessCrateContents(type);
 
+				CascadeProfile.NoteStep(type, Stopwatch.GetTimestamp() - stepStart);
+
 				if (queue.Count > maxQueueDepth)
 					maxQueueDepth = queue.Count;
 			}
@@ -929,6 +1109,8 @@ namespace YarnResearch.Common.Systems
 		// satisfied would otherwise never be rechecked when the last one arrives.
 		private static void ProcessCraftableOutputs(int type)
 		{
+			using var _ = CascadeProfile.Time(CascadeProfile.Phase.Craftable);
+
 			if (RecipesConsumingItem.TryGetValue(type, out List<int> ingredientRecipes)) {
 				foreach (int recipeIndex in ingredientRecipes)
 					TryResearchRecipeOutput(recipeIndex);
@@ -953,6 +1135,8 @@ namespace YarnResearch.Common.Systems
 
 		private static void TryResearchRecipeOutput(int recipeIndex)
 		{
+			using var _ = CascadeProfile.Time(CascadeProfile.Phase.RecipeCheck);
+
 			Recipe recipe = Main.recipe[recipeIndex];
 			int outputType = recipe.createItem.type;
 
@@ -1024,27 +1208,175 @@ namespace YarnResearch.Common.Systems
 			if (PendingNotifications.All(queue => queue.Count == 0))
 				return;
 
+			using var _ = CascadeProfile.Time(CascadeProfile.Phase.Notifications);
+
 			var config = ModContent.GetInstance<YarnResearchConfig>();
 			if (config.ShowAutoResearchNotifications) {
 				for (int origin = 0; origin < PendingNotifications.Length; origin++) {
-					if (PendingNotifications[origin].Count > 0)
-						Main.NewText($"{NotificationLabels[origin]}: {BuildTagList(PendingNotifications[origin])}");
+					if (PendingNotifications[origin].Count == 0)
+						continue;
+
+					CascadeProfile.NoteNotified(PendingNotifications[origin].Count);
+
+					string tagList;
+					using (CascadeProfile.Time(CascadeProfile.Phase.TagList))
+						tagList = BuildTagList(PendingNotifications[origin], TaggedTypes);
+
+					using (CascadeProfile.Time(CascadeProfile.Phase.NewText))
+						DeferNotification(NotificationText.Format(NotificationLabels[origin].Value, tagList));
 				}
 
-				SoundEngine.PlaySound(SoundID.ResearchComplete);
+				RequestTagTextures();
 			}
 
 			foreach (Queue<int> queue in PendingNotifications)
 				queue.Clear();
 		}
 
-		private static string BuildTagList(Queue<int> types)
+		// Posting a chat message containing item tags forces every tag's texture to be resident on the main
+		// thread: ItemTagHandler.ItemSnippet.UniqueDraw calls Main.instance.LoadItem before its
+		// justCheckingString guard, so it fires during word-wrap measurement, not only when drawing. A
+		// cold texture costs roughly 1.5ms there, which is the whole of the large-cascade hitch.
+		//
+		// Two independent levers, and both are needed. AsyncLoad decides where the decode happens and is
+		// worth keeping - the same 423 textures took 654ms that way against roughly 3555ms loaded one at a
+		// time synchronously. But it does not by itself keep the game responsive: requesting all 423 at
+		// once handed the engine an unbounded queue, which it drained inside a single frame. Rate-limiting
+		// how many requests are in flight bounds how much completion work can land on any one frame while
+		// still giving the decode enough parallelism to be fast. Only vanilla item textures are ever cold -
+		// per Main.LoadItem's own documentation, modded item textures all load during mod loading.
+		private static readonly List<string> DeferredMessages = new();
+		private static readonly List<int> DeferredTextureTypes = new();
+
+		// Types tagged by the current flush, reused across origins to keep this off the allocation path.
+		private static readonly List<int> TaggedTypes = new();
+
+		private static int _deferredTicksWaited;
+		private static int _deferredColdCount;
+		private static int _deferredLoadIndex;
+		private static int _deferredInFlight;
+		private static long _deferStartTimestamp;
+		private static long _preloadTicksSpent;
+		private static uint _deferStartUpdateCount;
+
+		// How many texture requests may be outstanding at once. Wide enough to keep the loader's worker
+		// threads busy, narrow enough that the completion work for a single frame stays small.
+		private const int MaxTexturesInFlight = 16;
+
+		// Safety valve: if warming somehow never completes, post anyway rather than swallowing the
+		// notification. Worst case that costs the old synchronous stall.
+		private const int MaxDeferredWaitTicks = 900;
+
+		private static void DeferNotification(string message) => DeferredMessages.Add(message);
+
+		private static void RequestTagTextures()
+		{
+			foreach (int type in TaggedTypes) {
+				if (type < 0 || type >= TextureAssets.Item.Length)
+					continue;
+
+				if (TextureAssets.Item[type].State == AssetState.NotLoaded)
+					DeferredTextureTypes.Add(type);
+			}
+
+			_deferredColdCount = DeferredTextureTypes.Count;
+			_deferStartTimestamp = Stopwatch.GetTimestamp();
+			_deferStartUpdateCount = Main.GameUpdateCount;
+			TaggedTypes.Clear();
+		}
+
+		// Tops the in-flight window back up to MaxTexturesInFlight each tick, so the engine never holds more
+		// outstanding requests than one frame can absorb. Deliberately does not wait on anything: the whole
+		// point is that the requests are still settling while the game carries on rendering.
+		private static void PumpTexturePreload()
+		{
+			long start = Stopwatch.GetTimestamp();
+			int inFlight = 0;
+
+			for (int i = 0; i < _deferredLoadIndex; i++) {
+				if (TextureAssets.Item[DeferredTextureTypes[i]].State != AssetState.Loaded)
+					inFlight++;
+			}
+
+			while (inFlight < MaxTexturesInFlight && _deferredLoadIndex < DeferredTextureTypes.Count) {
+				Asset<Texture2D> texture = TextureAssets.Item[DeferredTextureTypes[_deferredLoadIndex++]];
+
+				if (texture.State == AssetState.Loaded)
+					continue;
+
+				Main.Assets.Request<Texture2D>(texture.Name, AssetRequestMode.AsyncLoad);
+				inFlight++;
+			}
+
+			_deferredInFlight = inFlight;
+			_preloadTicksSpent += Stopwatch.GetTimestamp() - start;
+		}
+
+		// Driven from UpdateUI rather than a world-update hook so a cascade triggered with the inventory
+		// open still releases its notification while autopause is holding the world still.
+		private static void ReleaseDeferredNotifications()
+		{
+			if (DeferredMessages.Count == 0)
+				return;
+
+			PumpTexturePreload();
+
+			bool valveFired = ++_deferredTicksWaited >= MaxDeferredWaitTicks;
+			if (!valveFired && (_deferredLoadIndex < DeferredTextureTypes.Count || _deferredInFlight > 0))
+				return;
+
+			double waitedMs = (Stopwatch.GetTimestamp() - _deferStartTimestamp) * 1000.0 / Stopwatch.Frequency;
+			var postStopwatch = Stopwatch.StartNew();
+
+			foreach (string message in DeferredMessages)
+				Main.NewText(message);
+
+			postStopwatch.Stop();
+			SoundEngine.PlaySound(SoundID.ResearchComplete);
+
+			// Average frame time is the smoothness metric, and the only one that survives the work moving
+			// off this call: at 60fps a healthy run sits near 16.7ms, while the failed all-at-once AsyncLoad
+			// attempt showed 654ms across a single frame. Total elapsed and posting cost both looked fine
+			// there, so neither is evidence on its own. Pump ms is our own bookkeeping, expected to stay
+			// near zero - if it is not, the in-flight scan is the problem rather than the loading.
+			if (_deferredColdCount > 0) {
+				uint framesElapsed = Main.GameUpdateCount - _deferStartUpdateCount;
+				ModContent.GetInstance<YarnResearch>().Logger.Info(
+					$"ResearchCascadeSystem notification: {_deferredColdCount} cold textures warmed over " +
+					$"{framesElapsed} frames / {_deferredTicksWaited} UpdateUI ticks, {waitedMs:F2}ms wall clock " +
+					$"({(framesElapsed == 0 ? waitedMs : waitedMs / framesElapsed):F2}ms average frame time)" +
+					$"{(valveFired ? " (SAFETY VALVE FIRED - warming did not finish)" : "")}, " +
+					$"pump cost {_preloadTicksSpent * 1000.0 / Stopwatch.Frequency:F2}ms, " +
+					$"posting {DeferredMessages.Count} message(s) then took {postStopwatch.Elapsed.TotalMilliseconds:F2}ms");
+			}
+
+			ClearDeferredNotifications();
+		}
+
+		private static void ClearDeferredNotifications()
+		{
+			DeferredMessages.Clear();
+			DeferredTextureTypes.Clear();
+			TaggedTypes.Clear();
+			_deferredTicksWaited = 0;
+			_deferredColdCount = 0;
+			_deferredLoadIndex = 0;
+			_deferredInFlight = 0;
+			_preloadTicksSpent = 0;
+		}
+
+		// taggedTypes collects the types that made it into the list, so the caller can pre-load exactly
+		// those textures.
+		private static string BuildTagList(Queue<int> types, List<int> taggedTypes)
 		{
 			var tags = new List<string>();
 
 			foreach (int type in types) {
-				if (ContentSamples.ItemsByType.TryGetValue(type, out Item item))
-					tags.Add(ItemTagHandler.GenerateTag(item));
+				if (!ContentSamples.ItemsByType.TryGetValue(type, out Item item))
+					continue;
+
+				tags.Add(ItemTagHandler.GenerateTag(item));
+				taggedTypes.Add(type);
 			}
 
 			return string.Join("", tags);
