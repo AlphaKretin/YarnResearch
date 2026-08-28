@@ -101,9 +101,15 @@ namespace YarnResearch.Common.Players
 				ResearchCascadeSystem.RunShimmerCatchupScan();
 
 			ResearchCascadeSystem.CheckLiveConditionEdges();
+		}
 
+		// Called from ResearchCascadeSystem.UpdateUI, not PostUpdate: the world-update path is skipped while
+		// Journey autopause holds a menu open, which is exactly when items arrive from crafting or a chest.
+		public static void AutoScan()
+		{
+			var config = ModContent.GetInstance<YarnResearchConfig>();
 			if (config.AutoResearchHeldItems)
-				RunScan(config);
+				Main.LocalPlayer.GetModPlayer<YarnResearchPlayer>().RunScan(config);
 		}
 
 		// Re-forces the toggled banner/Garden Gnome proximity flags every tick - see

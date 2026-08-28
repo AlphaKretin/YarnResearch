@@ -16,7 +16,9 @@ using Terraria.ID;
 using Terraria.Localization;
 using Terraria.ModLoader;
 using Terraria.ModLoader.IO;
+using Terraria.Utilities;
 using YarnResearch.Common.Configs;
+using YarnResearch.Common.Players;
 
 namespace YarnResearch.Common.Systems
 {
@@ -431,6 +433,8 @@ namespace YarnResearch.Common.Systems
 		{
 			if (Main.gameMenu)
 				return;
+
+			YarnResearchPlayer.AutoScan();
 
 			ReleaseDeferredNotifications();
 
