@@ -98,9 +98,11 @@ namespace YarnResearch.Common.GlobalItems
 			});
 		}
 
+		// Scoped to the duplication grid for the same reason as AddOpenPrefixPickerHint below - the hotkey
+		// this advertises only acts on a hovered duplication-grid item.
 		private void AddInfiniteBuffHint(Item item, List<TooltipLine> tooltips)
 		{
-			if (!InfiniteBuffSystem.IsToggleable(item))
+			if (!DuplicationHoverSystem.IsHoveringSlot || !InfiniteBuffSystem.IsToggleable(item))
 				return;
 
 			List<string> keys = InfiniteBuffSystem.ToggleInfiniteBuffKeybind.GetAssignedKeys();
@@ -116,7 +118,7 @@ namespace YarnResearch.Common.GlobalItems
 		// happens to be open elsewhere (e.g. the player's ordinary inventory) - see PrefixPickerSystem.
 		private void AddOpenPrefixPickerHint(Item item, List<TooltipLine> tooltips)
 		{
-			if (!PrefixPickerSystem.IsHoveringDuplicationSlot || !NPC.AnyNPCs(NPCID.GoblinTinkerer))
+			if (!DuplicationHoverSystem.IsHoveringSlot || !NPC.AnyNPCs(NPCID.GoblinTinkerer))
 				return;
 
 			List<string> keys = PrefixPickerSystem.OpenPrefixPickerKeybind.GetAssignedKeys();

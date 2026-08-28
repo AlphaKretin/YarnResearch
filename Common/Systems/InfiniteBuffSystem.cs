@@ -173,22 +173,12 @@ namespace YarnResearch.Common.Systems
 			if (Main.gameMenu || !ToggleInfiniteBuffKeybind.JustPressed)
 				return;
 
-			if (!IsHoveringDuplicationMenu())
+			if (!DuplicationHoverSystem.IsHoveringSlot)
 				return;
 
 			Item hoverItem = Main.HoverItem;
 			if (!hoverItem.IsAir)
 				TryToggle(hoverItem);
-		}
-
-		// Main.CreativeMenu (type CreativeUI) backs both the Research/sacrifice and Duplication panels of
-		// the Journey Mode power-icon menu as one instance - vanilla's own Main.cs gates input on exactly
-		// this combination (Main.cs.patch: "bool flag9 = CreativeMenu.Enabled && !CreativeMenu.Blocked;").
-		// There's no further public distinction between its Research/Duplication tabs, so this scopes the
-		// hotkey to "the Journey Mode power menu is open" rather than the Duplication tab specifically.
-		internal static bool IsHoveringDuplicationMenu()
-		{
-			return Main.CreativeMenu.Enabled && !Main.CreativeMenu.Blocked;
 		}
 
 		// ItemID.Sets.BannerStrength[type].Enabled is NOT an "is this item a banner" flag - it's true for

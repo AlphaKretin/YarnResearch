@@ -32,20 +32,6 @@ namespace YarnResearch.Common.Systems
 		private PrefixPickerUIState _uiState;
 		private On_ItemSlot.hook_DrawItemIcon _drawItemIconHook;
 
-		// Main.CreativeMenu.Enabled alone (InfiniteBuffSystem.IsHoveringDuplicationMenu) only tells us the
-		// Journey power menu is open at all - the player's ordinary inventory is visible alongside it, so
-		// that check doesn't distinguish "hovering an actual duplication-grid slot" from "hovering a normal
-		// inventory item while the menu happens to be open". Set from the DrawItemIcon hook (which runs
-		// during Draw, after this frame's UpdateUI already ran) and promoted into the real flag at the top
-		// of the next UpdateUI - one frame of latency, imperceptible for a hover-gated hotkey/tooltip.
-		private static bool _hoveringDuplicationSlotPending;
-		private static bool _hoveringDuplicationSlot;
-
-		// Whether the currently-hovered item is actually sitting in the duplication grid (not just "the
-		// Journey power menu is open somewhere") - existing duplicates aren't a target for prefix-arming,
-		// so the hotkey/tooltip hint should only ever fire here.
-		public static bool IsHoveringDuplicationSlot => _hoveringDuplicationSlot;
-
 		// Set within the same frame's Draw pass (no next-frame lag needed, since this is only consumed
 		// later in the same Draw pass by ApplyHoverPreview) whenever the hovered duplication-grid item has
 		// an armed prefix - swapping Main.HoverItem for a prefixed clone right before Mouse Text draws is
@@ -90,7 +76,7 @@ namespace YarnResearch.Common.Systems
 					// background uses; a narrower box than vanilla's real hover area lets the unprefixed
 					// tooltip peek through near the tile's edges.
 					if (!item.IsAir && IsMouseOverIcon(screenPositionForItemCenter, iconSize * SlotTint.BackgroundPadding)) {
-						_hoveringDuplicationSlotPending = true;
+						DuplicationHoverSystem.MarkHoveringSlot();
 
 						YarnResearchPlayer player = Main.LocalPlayer.GetModPlayer<YarnResearchPlayer>();
 						if (TryGetArmedPrefix(player, item, out int armedPrefix)) {
@@ -199,22 +185,20 @@ namespace YarnResearch.Common.Systems
 		// autopause - same reasoning as ResearchCascadeSystem's own keybind.
 		public override void UpdateUI(GameTime gameTime)
 		{
-			_hoveringDuplicationSlot = _hoveringDuplicationSlotPending;
-			_hoveringDuplicationSlotPending = false;
 			_previewItemType = -1;
 			_previewIsPopupRow = false;
 
 			if (_userInterface.CurrentState != null) {
 				_userInterface.Update(gameTime);
 
-				if (!InfiniteBuffSystem.IsHoveringDuplicationMenu())
+				if (!DuplicationHoverSystem.IsMenuOpen)
 					ClosePicker();
 			}
 
 			if (Main.gameMenu || !OpenPrefixPickerKeybind.JustPressed)
 				return;
 
-			if (!_hoveringDuplicationSlot || !NPC.AnyNPCs(NPCID.GoblinTinkerer))
+			if (!DuplicationHoverSystem.IsHoveringSlot || !NPC.AnyNPCs(NPCID.GoblinTinkerer))
 				return;
 
 			Item hoverItem = Main.HoverItem;
