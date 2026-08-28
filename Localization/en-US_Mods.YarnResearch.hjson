@@ -32,9 +32,9 @@ Configs: {
 			Tooltip: ""
 		}
 
-		AutoResearchBiomeTorches: {
+		AutoResearchMiscCascades: {
 			Tooltip: ""
-			Label: Auto Research Biome Torches
+			Label: Auto Research Misc Cascades
 		}
 
 		AutoResearchShimmerOutputs: {
@@ -80,6 +80,7 @@ ResearchCascadeSystem: {
 		Held: Auto-researched
 		Craftable: Auto-crafted
 		BiomeTorch: Auto-converted
+		Extractinator: Auto-extracted
 		Shimmer: Auto-discovered
 		Crate: Auto-unpacked
 		Sacrifice: Sacrificed

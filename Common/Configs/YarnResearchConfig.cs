@@ -18,7 +18,7 @@ namespace YarnResearch.Common.Configs
 		public bool InfiniteResearchedConsumables;
 
 		[DefaultValue(true)]
-		public bool AutoResearchBiomeTorches;
+		public bool AutoResearchMiscCascades;
 
 		[DefaultValue(true)]
 		public bool AutoResearchShimmerOutputs;

@@ -29,6 +29,7 @@ namespace YarnResearch.Common.Systems
 			Held,
 			Craftable,
 			BiomeTorch,
+			Extractinator,
 			Shimmer,
 			Crate,
 			Sacrifice,
@@ -185,6 +186,23 @@ namespace YarnResearch.Common.Systems
 		// is fixed game data, while working it out costs one vanilla call per biome.
 		private static readonly Dictionary<int, int[]> BiomeTorchVariants = new();
 
+		// Every tile that functions as an Extractinator, in the form RollExtractinatorDrop takes as its
+		// extractinatorBlockType. The two roll different tables, so each is enumerated separately.
+		private static readonly int[] ExtractinatorTiles = { TileID.Extractinator, TileID.ChlorophyteExtractinator };
+
+		// (extract mode, extractinator tile) -> every item that pairing can yield. Cached for the same
+		// reason as BiomeTorchVariants, but far more so: working an entry out costs ExtractinatorRollSamples
+		// rolls.
+		private static readonly Dictionary<(int Mode, int BlockType), int[]> ExtractinatorOutputs = new();
+
+		// How many times each pairing is rolled to recover its drop table. The rarest researchable vanilla
+		// result is the Amber Mosquito at 1/10,000, which this leaves a ~1e-11 chance of missing.
+		private const int ExtractinatorRollSamples = 250_000;
+
+		// Fixed, so a pairing enumerates identically in every session - a sampled table that quietly varied
+		// run to run would make a missed drop impossible to reproduce.
+		private const int ExtractinatorSampleSeed = 20260828;
+
 		private static readonly Dictionary<int, List<int>> RecipesConsumingItem = new();
 		private static readonly Dictionary<int, List<int>> StationItemTypesByTile = new();
 
@@ -239,6 +257,8 @@ namespace YarnResearch.Common.Systems
 				RecipeCheck,
 				BiomeTorch,
 				TorchVariantBuild,
+				Extractinator,
+				ExtractinatorSample,
 				Shimmer,
 				DecraftLookup,
 				Crate,
@@ -255,6 +275,8 @@ namespace YarnResearch.Common.Systems
 				"  recipe checks",
 				"biome torches",
 				"  variant table build",
+				"extractinator outputs",
+				"  output table sample",
 				"shimmer outputs",
 				"  decraft lookup",
 				"crate contents",
@@ -464,7 +486,7 @@ namespace YarnResearch.Common.Systems
 
 			// Torches researched before the Favor was unlocked were never convertible at the time, so the
 			// unlock edge is the one moment their variants have to be swept for retroactively.
-			bool catchUpBiomeTorches = torchGodsFavorJustUnlocked && config.AutoResearchBiomeTorches;
+			bool catchUpBiomeTorches = torchGodsFavorJustUnlocked && config.AutoResearchMiscCascades;
 
 			if (recipesToRecheck == null && !catchUpBiomeTorches)
 				return;
@@ -685,6 +707,116 @@ namespace YarnResearch.Common.Systems
 
 			ModContent.GetInstance<YarnResearch>().Logger.Info(
 				$"ResearchCascadeSystem biome torch variants for {ContentSamples.ItemsByType[type].Name}: " +
+				(result.Length == 0 ? "none" : string.Join(", ", result.Select(v => ContentSamples.ItemsByType[v].Name))));
+
+			return result;
+		}
+
+		// An Extractinator turns a material into things the player can otherwise only get by mining, so
+		// owning both the machine and the material is effectively owning everything it can produce.
+		private static void ProcessExtractinatorOutputs(int type)
+		{
+			using var _ = CascadeProfile.Time(CascadeProfile.Phase.Extractinator);
+
+			// The machine arriving is the moment every already-researched material becomes extractable, so
+			// it sweeps them all rather than yielding anything itself.
+			if (ContentSamples.ItemsByType.TryGetValue(type, out Item item) &&
+				Array.IndexOf(ExtractinatorTiles, item.createTile) >= 0) {
+				foreach (int researched in ResearchedTypes.ToArray()) {
+					ProcessExtractedMaterial(researched);
+					ProcessChlorophyteTrade(researched);
+				}
+
+				return;
+			}
+
+			ProcessExtractedMaterial(type);
+			ProcessChlorophyteTrade(type);
+		}
+
+		// The Chlorophyte Extractinator also swaps items one for one - a mechanism entirely separate from the
+		// RNG extraction table, and the one place ItemID.Sets.ExtractinatorMode explicitly does not cover.
+		// Its trades live in ItemTrader.ChlorophyteExtractinator, which mods register their own swaps into,
+		// so reading them back covers modded trades for free. A cyclic trade loop (copper -> tin -> copper)
+		// resolves itself: each newly-researched result re-enters the drain and looks up its own trade.
+		private static void ProcessChlorophyteTrade(int type)
+		{
+			if (!ResearchedStationTiles.Contains(TileID.ChlorophyteExtractinator) ||
+				!ContentSamples.ItemsByType.TryGetValue(type, out Item sample))
+				return;
+
+			// A trade can want several of an item (ExampleMod's own asks for five bars) and the lookup weighs
+			// the offered stack against that, so offering ContentSamples' stack of one would silently miss
+			// every such trade.
+			Item offer = sample.Clone();
+			offer.stack = offer.maxStack;
+
+			if (!ItemTrader.ChlorophyteExtractinator.TryGetTradeOption(offer, out ItemTrader.TradeOption option))
+				return;
+
+			if (IsUnresearchedAndResearchable(option.GivingItemType))
+				ResearchWithOrigin(option.GivingItemType, ResearchOrigin.Extractinator);
+		}
+
+		private static void ProcessExtractedMaterial(int type)
+		{
+			if (type < 0 || type >= ItemID.Sets.ExtractinatorMode.Length)
+				return;
+
+			int extractMode = ItemID.Sets.ExtractinatorMode[type];
+			if (extractMode < 0)
+				return;
+
+			foreach (int blockType in ExtractinatorTiles) {
+				if (!ResearchedStationTiles.Contains(blockType))
+					continue;
+
+				foreach (int outputType in GetExtractinatorOutputs(extractMode, blockType)) {
+					if (IsUnresearchedAndResearchable(outputType))
+						ResearchWithOrigin(outputType, ResearchOrigin.Extractinator);
+				}
+			}
+		}
+
+		// Vanilla exposes only "roll one result" (ExtractinatorHelper.RollExtractinatorDrop), never the table
+		// behind it, so the table is recovered by rolling until every outcome has almost certainly appeared.
+		// Main.rand is swapped for a fixed-seed instance for the duration - same push-fake-state/restore
+		// shape as GetBiomeTorchVariants - so a quarter-million rolls neither consume nor perturb the world's
+		// own RNG stream.
+		private static int[] GetExtractinatorOutputs(int extractMode, int blockType)
+		{
+			if (ExtractinatorOutputs.TryGetValue((extractMode, blockType), out int[] cached))
+				return cached;
+
+			using var _ = CascadeProfile.Time(CascadeProfile.Phase.ExtractinatorSample);
+
+			var outputs = new HashSet<int>();
+			UnifiedRandom realRand = Main.rand;
+
+			try {
+				Main.rand = new UnifiedRandom(ExtractinatorSampleSeed);
+
+				for (int roll = 0; roll < ExtractinatorRollSamples; roll++) {
+					ExtractinatorHelper.RollExtractinatorDrop(extractMode, blockType, out int itemType, out int stack);
+
+					// Same order Player.ExtractinatorUse itself uses: mods get to replace or add to the
+					// vanilla roll before it becomes a real drop, so sampling without this would miss every
+					// modded extraction result.
+					ItemLoader.ExtractinatorUse(ref itemType, ref stack, extractMode, blockType);
+
+					if (itemType > 0)
+						outputs.Add(itemType);
+				}
+			}
+			finally {
+				Main.rand = realRand;
+			}
+
+			int[] result = outputs.ToArray();
+			ExtractinatorOutputs[(extractMode, blockType)] = result;
+
+			ModContent.GetInstance<YarnResearch>().Logger.Info(
+				$"ResearchCascadeSystem extractinator outputs for mode {extractMode} on tile {blockType}: " +
 				(result.Length == 0 ? "none" : string.Join(", ", result.Select(v => ContentSamples.ItemsByType[v].Name))));
 
 			return result;
@@ -1087,8 +1219,10 @@ namespace YarnResearch.Common.Systems
 				if (config.AutoResearchCraftable || _forcedMechanisms.HasFlag(Mechanism.Craftable))
 					ProcessCraftableOutputs(type);
 
-				if (config.AutoResearchBiomeTorches)
+				if (config.AutoResearchMiscCascades) {
 					ProcessBiomeTorchVariants(type);
+					ProcessExtractinatorOutputs(type);
+				}
 
 				if ((config.AutoResearchShimmerOutputs || _forcedMechanisms.HasFlag(Mechanism.Shimmer)) && _shimmerDiscovered)
 					ProcessShimmerOutputs(type);
