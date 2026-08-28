@@ -87,6 +87,7 @@ InfiniteBuffSystem.BuffBarFull: Your buff bar is full - can't toggle this on rig
 JourneyMenuTriggersButton.Tooltip: YARN manual research triggers
 HeldItemsActionPower.HoverText: Research Held Items
 CascadeActionPower.HoverText: Research Craftable Recipes
+MiscCascadeActionPower.HoverText: Research Misc. Sources
 ShimmerActionPower.HoverText: Research Shimmered Items
 
 FreeCraftingTogglePower: {

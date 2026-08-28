@@ -38,6 +38,20 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 		}
 	}
 
+	public class MiscCascadeActionPower : AYarnActionPower
+	{
+		private static readonly LocalizedText HoverTextValue = ModContent.GetInstance<YarnResearch>().GetLocalization($"{nameof(MiscCascadeActionPower)}.HoverText");
+
+		protected override Asset<Texture2D> Icon => GetItemIcon(ItemID.Extractinator);
+		public override LocalizedText HoverText => HoverTextValue;
+
+		protected override void DoAction()
+		{
+			ResearchCascadeSystem.ManualMiscCascadeScan();
+			SoundEngine.PlaySound(SoundID.MenuTick);
+		}
+	}
+
 	public class ShimmerActionPower : AYarnActionPower
 	{
 		private static readonly LocalizedText HoverTextValue = ModContent.GetInstance<YarnResearch>().GetLocalization($"{nameof(ShimmerActionPower)}.HoverText");

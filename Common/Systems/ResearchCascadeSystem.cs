@@ -55,6 +55,7 @@ namespace YarnResearch.Common.Systems
 			Craftable = 1,
 			Shimmer = 2,
 			Crate = 4,
+			Misc = 8,
 		}
 
 		private static readonly HashSet<int> ResearchedTypes = new();
@@ -603,6 +604,17 @@ namespace YarnResearch.Common.Systems
 		// a manual trigger button so a player who keeps the toggle off can still fire it on demand.
 		public static void ManualCascadeScan() =>
 			RunCatchupScan(Mechanism.Craftable, ProcessCraftableOutputs, "manual cascade scan");
+
+		public static void ManualMiscCascadeScan() =>
+			RunCatchupScan(Mechanism.Misc, ProcessMiscCascades, "manual misc. cascade scan");
+
+		// The odds and ends that share one config toggle and one manual trigger, rather than a mechanism
+		// substantial enough to get its own.
+		private static void ProcessMiscCascades(int type)
+		{
+			ProcessBiomeTorchVariants(type);
+			ProcessExtractinatorOutputs(type);
+		}
 
 		private static void RunCatchupScan(Mechanism mechanism, Action<int> processType, string logLabel)
 		{
@@ -1223,10 +1235,8 @@ namespace YarnResearch.Common.Systems
 				if (config.AutoResearchCraftable || _forcedMechanisms.HasFlag(Mechanism.Craftable))
 					ProcessCraftableOutputs(type);
 
-				if (config.AutoResearchMiscCascades) {
-					ProcessBiomeTorchVariants(type);
-					ProcessExtractinatorOutputs(type);
-				}
+				if (config.AutoResearchMiscCascades || _forcedMechanisms.HasFlag(Mechanism.Misc))
+					ProcessMiscCascades(type);
 
 				if ((config.AutoResearchShimmerOutputs || _forcedMechanisms.HasFlag(Mechanism.Shimmer)) && _shimmerDiscovered)
 					ProcessShimmerOutputs(type);
