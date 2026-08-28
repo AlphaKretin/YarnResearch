@@ -17,7 +17,9 @@ namespace YarnResearch.Common.Players
 		private const int MainInventoryStart = 10;
 		private const int MainInventoryEnd = 50;
 
-		private readonly Dictionary<Item[], (int[] Types, int[] Stacks)> _snapshots = new();
+		// Last-seen type/stack per inventory slot, so a scan only checks slots that actually changed.
+		private int[] _snapshotTypes = Array.Empty<int>();
+		private int[] _snapshotStacks = Array.Empty<int>();
 
 		// Persistent default prefix per PrefixCategory for the Journey duplication prefix picker - e.g.
 		// choosing "Warding" for the Accessory category applies it to every future accessory duplication.
@@ -107,9 +109,8 @@ namespace YarnResearch.Common.Players
 		// Journey autopause holds a menu open, which is exactly when items arrive from crafting or a chest.
 		public static void AutoScan()
 		{
-			var config = ModContent.GetInstance<YarnResearchConfig>();
-			if (config.AutoResearchHeldItems)
-				Main.LocalPlayer.GetModPlayer<YarnResearchPlayer>().RunScan(config);
+			if (ModContent.GetInstance<YarnResearchConfig>().AutoResearchHeldItems)
+				Main.LocalPlayer.GetModPlayer<YarnResearchPlayer>().RunScan();
 		}
 
 		// Re-forces the toggled banner/Garden Gnome proximity flags every tick - see
@@ -141,23 +142,13 @@ namespace YarnResearch.Common.Players
 		}
 
 		// Callable independent of AutoResearchHeldItems - used by the manual trigger button.
-		public static void ManualScan()
-		{
-			var config = ModContent.GetInstance<YarnResearchConfig>();
-			Main.LocalPlayer.GetModPlayer<YarnResearchPlayer>().RunScan(config);
-		}
+		public static void ManualScan() => Main.LocalPlayer.GetModPlayer<YarnResearchPlayer>().RunScan();
 
-		private void RunScan(YarnResearchConfig config)
+		private void RunScan()
 		{
 			ResearchCascadeSystem.BeginBatch();
 			try {
 				ScanAndDiff(Player.inventory);
-
-				if (config.IncludeBankAndSafeInScan) {
-					ScanAndDiff(Player.bank.item);
-					ScanAndDiff(Player.bank2.item);
-					ScanAndDiff(Player.bank3.item);
-				}
 			}
 			finally {
 				ResearchCascadeSystem.EndBatch();
@@ -229,18 +220,18 @@ namespace YarnResearch.Common.Players
 
 		private void ScanAndDiff(Item[] items)
 		{
-			if (!_snapshots.TryGetValue(items, out var snapshot) || snapshot.Types.Length != items.Length) {
-				snapshot = (new int[items.Length], new int[items.Length]);
-				_snapshots[items] = snapshot;
+			if (_snapshotTypes.Length != items.Length) {
+				_snapshotTypes = new int[items.Length];
+				_snapshotStacks = new int[items.Length];
 			}
 
 			for (int i = 0; i < items.Length; i++) {
 				Item item = items[i];
-				if (snapshot.Types[i] == item.type && snapshot.Stacks[i] == item.stack)
+				if (_snapshotTypes[i] == item.type && _snapshotStacks[i] == item.stack)
 					continue;
 
-				snapshot.Types[i] = item.type;
-				snapshot.Stacks[i] = item.stack;
+				_snapshotTypes[i] = item.type;
+				_snapshotStacks[i] = item.stack;
 
 				CheckItem(item);
 			}

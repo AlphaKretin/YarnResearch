@@ -34,9 +34,6 @@ namespace YarnResearch.Common.Configs
 
 		[Header("Options")]
 		[DefaultValue(true)]
-		public bool IncludeBankAndSafeInScan;
-
-		[DefaultValue(true)]
 		public bool ShowAutoResearchNotifications;
 	}
 }

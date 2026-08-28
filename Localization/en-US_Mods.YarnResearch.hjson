@@ -22,11 +22,6 @@ Configs: {
 			Tooltip: ""
 		}
 
-		IncludeBankAndSafeInScan: {
-			Label: Include Bank And Safe In Scan
-			Tooltip: ""
-		}
-
 		ShowAutoResearchNotifications: {
 			Label: Show Auto Research Notifications
 			Tooltip: ""
