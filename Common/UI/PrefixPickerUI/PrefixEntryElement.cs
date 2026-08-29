@@ -52,7 +52,7 @@ namespace YarnResearch.Common.UI.PrefixPickerUI
 		public override void LeftClick(UIMouseEvent evt)
 		{
 			base.LeftClick(evt);
-			Main.LocalPlayer.GetModPlayer<YarnResearchPlayer>().SetDefaultPrefix(_candidate.Category, _candidate.PrefixId);
+			Main.LocalPlayer.GetModPlayer<YarnResearchPlayer>().SetDefaultPrefix(PrefixGroup.OfType(_itemType), _candidate.PrefixId);
 			_onSelected();
 		}
 

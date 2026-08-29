@@ -21,15 +21,18 @@ namespace YarnResearch.Common.Players
 		private int[] _snapshotTypes = Array.Empty<int>();
 		private int[] _snapshotStacks = Array.Empty<int>();
 
-		// Persistent default prefix per PrefixCategory for the Journey duplication prefix picker - e.g.
-		// choosing "Warding" for the Accessory category applies it to every future accessory duplication.
-		public Dictionary<PrefixCategory, int> DefaultPrefixByCategory { get; } = new();
+		// Persistent default prefix per PrefixGroup for the Journey duplication prefix picker - e.g. choosing
+		// "Warding" while looking at an accessory applies it to every future accessory duplication.
+		public Dictionary<PrefixGroup, int> DefaultPrefixByGroup { get; } = new();
 
-		// Not saved - a one-shot forced prefix for the next duplication of a specific item type, armed by
-		// right-clicking a prefix in the picker without touching the persistent default above.
+		// Not saved - the prefix PrefixPickerSystem.DuplicateWithPrefix is about to force onto the item it is
+		// building, handed to YarnResearchGlobalItem.OnCreated and consumed there in the same call.
 		private (int ItemType, int PrefixId)? _pendingOneShotPrefix;
 
-		public void SetDefaultPrefix(PrefixCategory category, int prefixId) => DefaultPrefixByCategory[category] = prefixId;
+		public void SetDefaultPrefix(PrefixGroup group, int prefixId) => DefaultPrefixByGroup[group] = prefixId;
+
+		public bool TryGetDefaultPrefix(Item item, out int prefixId) =>
+			DefaultPrefixByGroup.TryGetValue(PrefixGroup.Of(item), out prefixId) && item.CanRollPrefix(prefixId);
 
 		public void ArmOneShotPrefix(int itemType, int prefixId) => _pendingOneShotPrefix = (itemType, prefixId);
 
@@ -45,21 +48,6 @@ namespace YarnResearch.Common.Players
 			return false;
 		}
 
-		// Non-consuming check for the duplication-grid armed indicator/tooltip - see PrefixPickerSystem
-		// and YarnResearchGlobalItem's tooltip hint.
-		public bool TryPeekOneShotPrefix(int itemType, out int prefixId)
-		{
-			if (_pendingOneShotPrefix is { } pending && pending.ItemType == itemType) {
-				prefixId = pending.PrefixId;
-				return true;
-			}
-
-			prefixId = 0;
-			return false;
-		}
-
-		public bool HasOneShotArmedFor(int itemType) => TryPeekOneShotPrefix(itemType, out _);
-
 		// Free-crafting toggle (see FreeCraftingSystem) - a property of the character, not the world, so a
 		// player who wants it on keeps it on everywhere.
 		public bool FreeCraftingEnabled { get; set; }
@@ -69,27 +57,30 @@ namespace YarnResearch.Common.Players
 			if (FreeCraftingEnabled)
 				tag["FreeCrafting"] = true;
 
-			if (DefaultPrefixByCategory.Count == 0)
+			if (DefaultPrefixByGroup.Count == 0)
 				return;
 
 			var entries = new List<TagCompound>();
-			foreach (var (category, prefixId) in DefaultPrefixByCategory)
-				entries.Add(new TagCompound { ["Category"] = category.ToString(), ["Prefix"] = prefixId });
+			foreach (var (group, prefixId) in DefaultPrefixByGroup) {
+				var entry = new TagCompound { ["Prefix"] = prefixId };
+				group.Save(entry);
+				entries.Add(entry);
+			}
 
-			tag["DefaultPrefixes"] = entries;
+			tag["DefaultPrefixGroups"] = entries;
 		}
 
 		public override void LoadData(TagCompound tag)
 		{
 			FreeCraftingEnabled = tag.ContainsKey("FreeCrafting");
 
-			if (!tag.TryGet("DefaultPrefixes", out List<TagCompound> entries))
+			// Defaults saved before groups existed were keyed by a single PrefixCategory, which no longer
+			// identifies anything - that tag is left unread so those entries are simply dropped.
+			if (!tag.TryGet("DefaultPrefixGroups", out List<TagCompound> entries))
 				return;
 
-			foreach (TagCompound entry in entries) {
-				if (Enum.TryParse(entry.GetString("Category"), out PrefixCategory category))
-					DefaultPrefixByCategory[category] = entry.GetInt("Prefix");
-			}
+			foreach (TagCompound entry in entries)
+				DefaultPrefixByGroup[PrefixGroup.Load(entry)] = entry.GetInt("Prefix");
 		}
 
 		public override void PostUpdate()

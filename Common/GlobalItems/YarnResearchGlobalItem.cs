@@ -49,12 +49,8 @@ namespace YarnResearch.Common.GlobalItems
 				return;
 			}
 
-			foreach (PrefixCategory category in item.GetPrefixCategories()) {
-				if (player.DefaultPrefixByCategory.TryGetValue(category, out int defaultPrefix) && item.CanRollPrefix(defaultPrefix)) {
-					item.Prefix(defaultPrefix);
-					return;
-				}
-			}
+			if (player.TryGetDefaultPrefix(item, out int defaultPrefix))
+				item.Prefix(defaultPrefix);
 		}
 
 		public override bool ConsumeItem(Item item, Player player)

@@ -8,14 +8,12 @@ namespace YarnResearch.Common.UI.PrefixPickerUI
 	public readonly struct PrefixCandidate
 	{
 		public readonly int PrefixId;
-		public readonly PrefixCategory Category;
 		public readonly string DisplayName;
 		public readonly int Value;
 
-		private PrefixCandidate(int prefixId, PrefixCategory category, string displayName, int value)
+		private PrefixCandidate(int prefixId, string displayName, int value)
 		{
 			PrefixId = prefixId;
-			Category = category;
 			DisplayName = displayName;
 			Value = value;
 		}
@@ -25,12 +23,15 @@ namespace YarnResearch.Common.UI.PrefixPickerUI
 			var results = new List<PrefixCandidate>();
 			var seen = new HashSet<int>();
 
+			// Every category the item matches contributes its prefixes to one flat list. Which category a
+			// given prefix came from doesn't matter to the caller - a default is keyed on the item's whole
+			// PrefixGroup, not on any single category (see PrefixGroup).
 			foreach (PrefixCategory category in item.GetPrefixCategories()) {
 				foreach (int prefixId in Item.GetVanillaPrefixes(category))
-					TryAdd(item, category, prefixId, results, seen);
+					TryAdd(item, prefixId, results, seen);
 
 				foreach (ModPrefix modPrefix in PrefixLoader.GetPrefixesInCategory(category))
-					TryAdd(item, category, modPrefix.Type, results, seen);
+					TryAdd(item, modPrefix.Type, results, seen);
 			}
 
 			// No public API exposes a prefix's value multiplier directly (ModPrefix.ModifyValue only runs as
@@ -40,12 +41,12 @@ namespace YarnResearch.Common.UI.PrefixPickerUI
 			return results;
 		}
 
-		private static void TryAdd(Item item, PrefixCategory category, int prefixId, List<PrefixCandidate> results, HashSet<int> seen)
+		private static void TryAdd(Item item, int prefixId, List<PrefixCandidate> results, HashSet<int> seen)
 		{
 			if (prefixId <= 0 || !seen.Add(prefixId) || !item.CanRollPrefix(prefixId))
 				return;
 
-			results.Add(new PrefixCandidate(prefixId, category, Lang.prefix[prefixId].Value, GetPrefixValue(item.type, prefixId)));
+			results.Add(new PrefixCandidate(prefixId, Lang.prefix[prefixId].Value, GetPrefixValue(item.type, prefixId)));
 		}
 
 		// Item.value is an int, and the prefix value multiplier gets applied by multiplying-and-rounding

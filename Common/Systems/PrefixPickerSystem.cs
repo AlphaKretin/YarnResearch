@@ -71,7 +71,7 @@ namespace YarnResearch.Common.Systems
 						DuplicationHoverSystem.MarkHoveringSlot();
 
 						YarnResearchPlayer player = Main.LocalPlayer.GetModPlayer<YarnResearchPlayer>();
-						if (TryGetArmedPrefix(player, item, out int armedPrefix)) {
+						if (player.TryGetDefaultPrefix(item, out int armedPrefix)) {
 							_previewItemType = item.type;
 							_previewPrefixId = armedPrefix;
 							_previewIsPopupRow = false;
@@ -122,45 +122,15 @@ namespace YarnResearch.Common.Systems
 			SoundEngine.PlaySound(SoundID.Grab);
 		}
 
-		// One-shot takes priority over the persistent default - shared by the icon tint and the hover
-		// tooltip preview, so both agree on which prefix is actually about to be applied.
-		private static bool TryGetArmedPrefix(YarnResearchPlayer player, Item item, out int prefixId)
-		{
-			if (player.TryPeekOneShotPrefix(item.type, out prefixId))
-				return true;
-
-			foreach (PrefixCategory category in item.GetPrefixCategories()) {
-				if (player.DefaultPrefixByCategory.TryGetValue(category, out prefixId) && item.CanRollPrefix(prefixId))
-					return true;
-			}
-
-			prefixId = 0;
-			return false;
-		}
-
 		private static void DrawSlotOverlay(Item item, SpriteBatch spriteBatch, Vector2 center, float iconSize)
 		{
-			if (item == null || item.IsAir)
+			// Only the slot the picker is currently open for is marked. Having a default prefix isn't marked
+			// at all: the player has to hover an item to see which prefix it would get anyway, so an
+			// at-a-glance indicator on every affected item earned nothing for the visual noise.
+			if (item == null || item.IsAir || item.type != _activePickerItemType)
 				return;
 
-			Color tint;
-
-			// The picker being open for this slot takes priority over either armed tint - it's the more
-			// immediately relevant state, whether or not a prefix has been armed yet.
-			if (item.type == _activePickerItemType) {
-				tint = YarnColors.PrefixPickerTargetSlot;
-			}
-			else {
-				YarnResearchPlayer player = Main.LocalPlayer.GetModPlayer<YarnResearchPlayer>();
-				if (!TryGetArmedPrefix(player, item, out _))
-					return;
-
-				// One-shot takes priority when both would apply, since it's the more time-sensitive state
-				// to forget about.
-				tint = player.HasOneShotArmedFor(item.type) ? YarnColors.PrefixOneShotArmedSlot : YarnColors.PrefixDefaultArmedSlot;
-			}
-
-			SlotTint.Draw(spriteBatch, center, iconSize, tint);
+			SlotTint.Draw(spriteBatch, center, iconSize, YarnColors.PrefixPickerTargetSlot);
 		}
 
 		private static bool IsMouseOverIcon(Vector2 center, float iconSize)

@@ -10,8 +10,6 @@ namespace YarnResearch.Common.UI
 		// Slot tints in the Journey duplication grid, drawn by SlotTint. Deliberately far apart in hue,
 		// since a slot only ever shows one of them and the tint is the only thing distinguishing the states.
 		public static readonly Color InfiniteBuffSlot = new(255, 140, 0);
-		public static readonly Color PrefixDefaultArmedSlot = new(60, 150, 220);
-		public static readonly Color PrefixOneShotArmedSlot = new(170, 60, 220);
 
 		// The slot the prefix picker popup is currently open for.
 		public static readonly Color PrefixPickerTargetSlot = new(230, 220, 60);
