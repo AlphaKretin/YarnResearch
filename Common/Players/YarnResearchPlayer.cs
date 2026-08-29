@@ -31,8 +31,13 @@ namespace YarnResearch.Common.Players
 
 		public void SetDefaultPrefix(PrefixGroup group, int prefixId) => DefaultPrefixByGroup[group] = prefixId;
 
+		// A group's default still has to survive being applied to this particular item - the group is a set of
+		// items, not one item, so a prefix chosen on one member can be a no-op on another, and Item.Prefix
+		// answers a no-op by rolling something random instead (see PrefixTrial).
 		public bool TryGetDefaultPrefix(Item item, out int prefixId) =>
-			DefaultPrefixByGroup.TryGetValue(PrefixGroup.Of(item), out prefixId) && item.CanRollPrefix(prefixId);
+			DefaultPrefixByGroup.TryGetValue(PrefixGroup.Of(item), out prefixId) &&
+			item.CanRollPrefix(prefixId) &&
+			PrefixTrial.Of(item.type, prefixId).Applied;
 
 		public void ArmOneShotPrefix(int itemType, int prefixId) => _pendingOneShotPrefix = (itemType, prefixId);
 
