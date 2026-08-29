@@ -12,7 +12,6 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 	public class ItemIconButton : UIElement
 	{
 		private static readonly Vector2 DropShadowOffset = new(2f, 2f);
-		private static readonly Color DropShadowColor = new(0, 0, 0, 150);
 
 		private readonly Asset<Texture2D> _icon;
 		private readonly Rectangle? _sourceRect;
@@ -22,17 +21,11 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 		// destructive action.
 		public Color IconTint { get; set; } = Color.White;
 
-		// sourceRect, if given, selects one frame out of a multi-icon spritesheet (e.g. Infinite_Powers)
-		// instead of drawing the whole texture.
-		//
-		// drawDropShadow draws a second, offset dark copy of the icon underneath - vanilla's own power
-		// icons bake a drop shadow into the image itself, so this is only needed for an icon (like an
-		// item sprite) that doesn't already have one.
-		public ItemIconButton(Asset<Texture2D> icon, Rectangle? sourceRect = null, bool drawDropShadow = false)
+		public ItemIconButton(YarnIcon icon)
 		{
-			_icon = icon;
-			_sourceRect = sourceRect;
-			_drawDropShadow = drawDropShadow;
+			_icon = icon.Texture;
+			_sourceRect = icon.Frame;
+			_drawDropShadow = icon.DrawDropShadow;
 		}
 
 		protected override void DrawSelf(SpriteBatch spriteBatch)
@@ -52,7 +45,7 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 				(int)(dimensions.Y + dimensions.Height / 2f));
 
 			if (_drawDropShadow)
-				spriteBatch.Draw(texture, center + DropShadowOffset, sourceRect, DropShadowColor, 0f, origin, scale, SpriteEffects.None, 0f);
+				spriteBatch.Draw(texture, center + DropShadowOffset, sourceRect, YarnColors.IconDropShadow, 0f, origin, scale, SpriteEffects.None, 0f);
 
 			spriteBatch.Draw(texture, center, sourceRect, IconTint, 0f, origin, scale, SpriteEffects.None, 0f);
 		}

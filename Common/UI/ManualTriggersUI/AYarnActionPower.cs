@@ -1,10 +1,6 @@
 using System.Collections.Generic;
 using System.IO;
 using Microsoft.Xna.Framework;
-using Microsoft.Xna.Framework.Graphics;
-using ReLogic.Content;
-using Terraria;
-using Terraria.GameContent;
 using Terraria.GameContent.Creative;
 using Terraria.GameContent.UI.Elements;
 using Terraria.Localization;
@@ -31,12 +27,7 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 
 		public ItemIconButton IconElement { get; protected set; }
 
-		protected abstract Asset<Texture2D> Icon { get; }
-		protected virtual Rectangle? IconFrame => null;
-
-		// Vanilla's own power icons bake a drop shadow into the image itself - only needed here for an
-		// icon (an item sprite, or the trash-slot icon) that doesn't already have one baked in.
-		protected virtual bool DrawIconDropShadow => true;
+		protected abstract YarnIcon Icon { get; }
 
 		public abstract LocalizedText HoverText { get; }
 
@@ -49,13 +40,6 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 		public abstract UIElement ButtonElement { get; }
 
 		public abstract void ProvidePowerButtons(CreativePowerUIElementRequestInfo info, List<UIElement> elements);
-
-		// An item's own inventory sprite, for a power whose icon is just that item.
-		protected static Asset<Texture2D> GetItemIcon(int itemType)
-		{
-			Main.instance.LoadItem(itemType);
-			return TextureAssets.Item[itemType];
-		}
 
 		// No cross-client sync needed - every action here (scanning/sacrificing/clearing the local
 		// player's own inventory, or toggling free crafting) only ever runs on the clicking client.
@@ -125,11 +109,11 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 			// vanilla button uses those, and doing so here made the icon translucent once the real
 			// override-opacity fields were copied on, since the button's own fade state bleeds into its
 			// built-in icon draw.
-			IconElement = new ItemIconButton(Icon, sourceRect: IconFrame, drawDropShadow: DrawIconDropShadow) {
+			IconElement = new ItemIconButton(Icon) {
 				IgnoresMouseInteraction = true,
 			};
 
-			if (IconFrame is Rectangle frame) {
+			if (Icon.Frame is Rectangle frame) {
 				// The real Open Research Menu button (same Infinite_Powers gear icon, same frame) draws its
 				// icon at native size flush against the button's bottom-right corner rather than scaling it
 				// to fill: a 36x36 icon inset exactly 4px from a 40x40 button's top-left.

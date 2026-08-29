@@ -20,14 +20,6 @@ namespace YarnResearch.Common.Systems
 	{
 		public static ModKeybind OpenPrefixPickerKeybind { get; private set; }
 
-		// Distinct from InfiniteBuffSystem's orange toggle tint - one-shot takes priority when both would
-		// apply, since it's the more time-sensitive state to forget about.
-		private static readonly Color OneShotArmedColor = new(170, 60, 220);
-		private static readonly Color DefaultArmedColor = new(60, 150, 220);
-		// Takes priority over both armed colors above - the popup being open for this slot is the more
-		// immediately relevant state, whether or not a prefix has been armed yet.
-		private static readonly Color ActivePickerTargetColor = new(230, 220, 60);
-
 		private UserInterface _userInterface;
 		private PrefixPickerUIState _uiState;
 		private On_ItemSlot.hook_DrawItemIcon _drawItemIconHook;
@@ -152,15 +144,20 @@ namespace YarnResearch.Common.Systems
 				return;
 
 			Color tint;
+
+			// The picker being open for this slot takes priority over either armed tint - it's the more
+			// immediately relevant state, whether or not a prefix has been armed yet.
 			if (item.type == _activePickerItemType) {
-				tint = ActivePickerTargetColor;
+				tint = YarnColors.PrefixPickerTargetSlot;
 			}
 			else {
 				YarnResearchPlayer player = Main.LocalPlayer.GetModPlayer<YarnResearchPlayer>();
 				if (!TryGetArmedPrefix(player, item, out _))
 					return;
 
-				tint = player.HasOneShotArmedFor(item.type) ? OneShotArmedColor : DefaultArmedColor;
+				// One-shot takes priority when both would apply, since it's the more time-sensitive state
+				// to forget about.
+				tint = player.HasOneShotArmedFor(item.type) ? YarnColors.PrefixOneShotArmedSlot : YarnColors.PrefixDefaultArmedSlot;
 			}
 
 			SlotTint.Draw(spriteBatch, center, iconSize, tint);

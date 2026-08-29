@@ -1,6 +1,4 @@
 using Microsoft.Xna.Framework;
-using Microsoft.Xna.Framework.Graphics;
-using ReLogic.Content;
 using Terraria.Audio;
 using Terraria.ID;
 using Terraria.Localization;
@@ -14,7 +12,7 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 	{
 		private static readonly LocalizedText HoverTextValue = ModContent.GetInstance<YarnResearch>().GetLocalization($"{nameof(HeldItemsActionPower)}.HoverText");
 
-		protected override Asset<Texture2D> Icon => GetItemIcon(ItemID.Binoculars);
+		protected override YarnIcon Icon => YarnIcons.HeldItemsScan;
 		public override LocalizedText HoverText => HoverTextValue;
 
 		protected override void DoAction()
@@ -28,7 +26,7 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 	{
 		private static readonly LocalizedText HoverTextValue = ModContent.GetInstance<YarnResearch>().GetLocalization($"{nameof(CascadeActionPower)}.HoverText");
 
-		protected override Asset<Texture2D> Icon => GetItemIcon(ItemID.WorkBench);
+		protected override YarnIcon Icon => YarnIcons.CraftableScan;
 		public override LocalizedText HoverText => HoverTextValue;
 
 		protected override void DoAction()
@@ -42,7 +40,7 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 	{
 		private static readonly LocalizedText HoverTextValue = ModContent.GetInstance<YarnResearch>().GetLocalization($"{nameof(MiscCascadeActionPower)}.HoverText");
 
-		protected override Asset<Texture2D> Icon => GetItemIcon(ItemID.Extractinator);
+		protected override YarnIcon Icon => YarnIcons.MiscScan;
 		public override LocalizedText HoverText => HoverTextValue;
 
 		protected override void DoAction()
@@ -56,7 +54,7 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 	{
 		private static readonly LocalizedText HoverTextValue = ModContent.GetInstance<YarnResearch>().GetLocalization($"{nameof(ShimmerActionPower)}.HoverText");
 
-		protected override Asset<Texture2D> Icon => GetItemIcon(ItemID.BottomlessShimmerBucket);
+		protected override YarnIcon Icon => YarnIcons.ShimmerScan;
 		public override LocalizedText HoverText => HoverTextValue;
 
 		public override bool GetIsUnlocked() => ResearchCascadeSystem.ShimmerDiscovered;
@@ -74,7 +72,7 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 		private static readonly LocalizedText HoverTextValue = ModContent.GetInstance<YarnResearch>().GetLocalization($"{nameof(FreeCraftingTogglePower)}.HoverText");
 		private static readonly LocalizedText ActiveHoverTextValue = ModContent.GetInstance<YarnResearch>().GetLocalization($"{nameof(FreeCraftingTogglePower)}.ActiveHoverText");
 
-		protected override Asset<Texture2D> Icon => GetItemIcon(ItemID.HandOfCreation);
+		protected override YarnIcon Icon => YarnIcons.FreeCrafting;
 		public override LocalizedText HoverText => FreeCraftingSystem.Enabled ? ActiveHoverTextValue : HoverTextValue;
 
 		protected override bool IsOn => FreeCraftingSystem.Enabled;
@@ -95,11 +93,7 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 
 		private readonly ConfirmGuard _guard = new();
 
-		// The vanilla powers menu's own research-gear icon: frame index 1 of a 21-frame, 36x36-per-frame
-		// spritesheet, with a drop shadow already baked in.
-		protected override Asset<Texture2D> Icon => ModContent.Request<Texture2D>("Terraria/Images/UI/Creative/Infinite_Powers", AssetRequestMode.ImmediateLoad);
-		protected override Rectangle? IconFrame => new(36, 0, 36, 36);
-		protected override bool DrawIconDropShadow => false;
+		protected override YarnIcon Icon => YarnIcons.ConsumeUnresearched;
 
 		public override LocalizedText HoverText => _guard.Armed ? ArmedHoverTextValue : HoverTextValue;
 
@@ -118,7 +112,7 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 		{
 			_guard.Update();
 			if (IconElement != null)
-				IconElement.IconTint = _guard.Armed ? Color.OrangeRed : Color.White;
+				IconElement.IconTint = _guard.Armed ? YarnColors.ArmedActionIcon : Color.White;
 		}
 
 		public override void OnClosed() => _guard.Disarm();
@@ -137,8 +131,7 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 		// asset path instead, matching the two extracted variants Custom/trash_item_0 and _1.
 		private static readonly SoundStyle TrashSound = new("Terraria/Sounds/Custom/trash_item_", 0, 2) { LimitsArePerVariant = true };
 
-		// The inventory trash-slot icon, at Content/Images/Trash.xnb.
-		protected override Asset<Texture2D> Icon => ModContent.Request<Texture2D>("Terraria/Images/Trash", AssetRequestMode.ImmediateLoad);
+		protected override YarnIcon Icon => YarnIcons.ClearResearched;
 
 		public override LocalizedText HoverText => _guard.Armed ? ArmedHoverTextValue : HoverTextValue;
 
@@ -157,7 +150,7 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 		{
 			_guard.Update();
 			if (IconElement != null)
-				IconElement.IconTint = _guard.Armed ? Color.OrangeRed : Color.White;
+				IconElement.IconTint = _guard.Armed ? YarnColors.ArmedActionIcon : Color.White;
 		}
 
 		public override void OnClosed() => _guard.Disarm();

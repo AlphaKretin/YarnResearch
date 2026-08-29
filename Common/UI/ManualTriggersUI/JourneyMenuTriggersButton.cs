@@ -210,7 +210,7 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 			button.Height.Set(lastVanillaButton.Height.Pixels, lastVanillaButton.Height.Percent);
 
 			Main.instance.LoadItem(ItemID.UnluckyYarn);
-			var icon = new ItemIconButton(TextureAssets.Item[ItemID.UnluckyYarn], drawDropShadow: true) {
+			var icon = new ItemIconButton(YarnIcons.YarnCategory) {
 				IgnoresMouseInteraction = true,
 			};
 			icon.Width.Set(0f, 1f);

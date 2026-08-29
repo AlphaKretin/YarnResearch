@@ -8,6 +8,7 @@ using Terraria.ModLoader;
 using YarnResearch.Common.Configs;
 using YarnResearch.Common.Players;
 using YarnResearch.Common.Systems;
+using YarnResearch.Common.UI;
 using YarnResearch.Common.UI.PrefixPickerUI;
 
 namespace YarnResearch.Common.GlobalItems
@@ -94,7 +95,7 @@ namespace YarnResearch.Common.GlobalItems
 				return;
 
 			tooltips.Add(new TooltipLine(Mod, "ResearchCrateContentsHint", ResearchCrateContentsHintText.Format(keys[0])) {
-				Color = Color.Pink
+				Color = YarnColors.TooltipHint
 			});
 		}
 
@@ -110,7 +111,7 @@ namespace YarnResearch.Common.GlobalItems
 				return;
 
 			tooltips.Add(new TooltipLine(Mod, "ToggleInfiniteBuffHint", ToggleInfiniteBuffHintText.Format(keys[0])) {
-				Color = Color.Pink
+				Color = YarnColors.TooltipHint
 			});
 		}
 
@@ -126,7 +127,7 @@ namespace YarnResearch.Common.GlobalItems
 				return;
 
 			tooltips.Add(new TooltipLine(Mod, "OpenPrefixPickerHint", OpenPrefixPickerHintText.Format(keys[0])) {
-				Color = Color.Pink
+				Color = YarnColors.TooltipHint
 			});
 		}
 
@@ -138,10 +139,10 @@ namespace YarnResearch.Common.GlobalItems
 				return;
 
 			tooltips.Add(new TooltipLine(Mod, "PrefixPickerPopupSetDefaultHint", PrefixPickerPopupSetDefaultHintText.Value) {
-				Color = Color.Pink
+				Color = YarnColors.TooltipHint
 			});
 			tooltips.Add(new TooltipLine(Mod, "PrefixPickerPopupDuplicateHint", PrefixPickerPopupDuplicateHintText.Value) {
-				Color = Color.Pink
+				Color = YarnColors.TooltipHint
 			});
 		}
 	}

@@ -70,8 +70,6 @@ namespace YarnResearch.Common.Systems
 		// as banners, just a single bool instead of a set.
 		private static bool _gardenGnomeInfinite;
 
-		private static readonly Color InfiniteHighlightColor = new(255, 140, 0);
-
 		public static ModKeybind ToggleInfiniteBuffKeybind { get; private set; }
 
 		private static LocalizedText _buffBarFullText;
@@ -98,7 +96,7 @@ namespace YarnResearch.Common.Systems
 			// the outer Draw because it hands us the icon's exact center point and size limit directly.
 			_drawItemIconHook = (On_ItemSlot.orig_DrawItemIcon orig, Item item, int context, SpriteBatch spriteBatch, Vector2 screenPositionForItemCenter, float scale, float sizeLimit, Color environmentColor, float itemFade, bool flip) => {
 				if (context == ItemSlot.Context.CreativeInfinite && IsItemInfinite(item))
-					SlotTint.Draw(spriteBatch, screenPositionForItemCenter, sizeLimit * scale, InfiniteHighlightColor);
+					SlotTint.Draw(spriteBatch, screenPositionForItemCenter, sizeLimit * scale, YarnColors.InfiniteBuffSlot);
 
 				return orig(item, context, spriteBatch, screenPositionForItemCenter, scale, sizeLimit, environmentColor, itemFade, flip);
 			};
