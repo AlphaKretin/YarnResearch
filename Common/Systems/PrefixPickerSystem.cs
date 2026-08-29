@@ -58,6 +58,8 @@ namespace YarnResearch.Common.Systems
 			// Same duplication-panel-only context InfiniteBuffSystem scopes its own icon tint to.
 			_drawItemIconHook = (On_ItemSlot.orig_DrawItemIcon orig, Item item, int context, SpriteBatch spriteBatch, Vector2 screenPositionForItemCenter, float scale, float sizeLimit, Color environmentColor, float itemFade, bool flip) => {
 				if (context == ItemSlot.Context.CreativeInfinite) {
+					DuplicationHoverSystem.MarkGridDrawn();
+
 					float iconSize = sizeLimit * scale;
 
 					// The duplication grid's Main.HoverItem isn't reference-equal to the Item instance drawn
@@ -158,7 +160,9 @@ namespace YarnResearch.Common.Systems
 			if (_userInterface.CurrentState != null) {
 				_userInterface.Update(gameTime);
 
-				if (!DuplicationHoverSystem.IsMenuOpen)
+				// Gated on the grid specifically, not on the power menu being open at all: switching to
+				// another power category leaves the item the picker is for off screen.
+				if (!DuplicationHoverSystem.IsGridVisible)
 					ClosePicker();
 			}
 
@@ -171,6 +175,13 @@ namespace YarnResearch.Common.Systems
 			Item hoverItem = Main.HoverItem;
 			if (hoverItem.IsAir)
 				return;
+
+			// Pressing the hotkey again on the item the picker is already open for closes it. Pressing it on
+			// a different item re-targets instead, which is what _activePickerItemType's highlight is for.
+			if (hoverItem.type == _activePickerItemType) {
+				ClosePicker();
+				return;
+			}
 
 			List<PrefixCandidate> candidates = PrefixCandidate.GetCandidates(hoverItem);
 			if (candidates.Count == 0)

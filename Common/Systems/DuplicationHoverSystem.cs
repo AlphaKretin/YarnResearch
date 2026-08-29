@@ -1,5 +1,4 @@
 using Microsoft.Xna.Framework;
-using Terraria;
 using Terraria.ModLoader;
 
 namespace YarnResearch.Common.Systems
@@ -12,14 +11,16 @@ namespace YarnResearch.Common.Systems
 		// when these hover-gated hotkeys have to keep working.
 		private static long _tick;
 		private static long _lastHoverTick = -10;
+		private static long _lastGridDrawTick = -10;
 
-		// Main.CreativeMenu (type CreativeUI) backs both the Research/sacrifice and Duplication panels of
-		// the Journey Mode power-icon menu as one instance - vanilla's own Main.cs gates input on exactly
-		// this combination (Main.cs.patch: "bool flag9 = CreativeMenu.Enabled && !CreativeMenu.Blocked;").
-		// There's no further public distinction between its Research/Duplication tabs, so this only means
-		// "the power menu is open at all" - the player's ordinary inventory is visible alongside it, so
-		// anything that should apply to duplication-grid items specifically wants IsHoveringSlot instead.
-		public static bool IsMenuOpen => Main.CreativeMenu.Enabled && !Main.CreativeMenu.Blocked;
+		// Whether the duplication grid itself is on screen. Reported from the same ItemSlot.DrawItemIcon hook
+		// as the hover flag below, on the CreativeInfinite slot context that only the duplication grid draws
+		// with - so switching power category stops the reports and this goes false, with the same tick
+		// tolerance as IsHoveringSlot. Main.CreativeMenu can't answer this: one CreativeUI instance backs
+		// both the Research/sacrifice and Duplication panels, with no public distinction between them.
+		public static bool IsGridVisible => _tick - _lastGridDrawTick <= 1;
+
+		public static void MarkGridDrawn() => _lastGridDrawTick = _tick;
 
 		// Whether the cursor is over an actual duplication-grid slot. Reported from PrefixPickerSystem's
 		// ItemSlot.DrawItemIcon hook, which runs during Draw - so a reader in Draw (a tooltip) sees a
