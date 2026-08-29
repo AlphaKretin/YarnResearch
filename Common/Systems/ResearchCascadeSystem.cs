@@ -597,8 +597,16 @@ namespace YarnResearch.Common.Systems
 		public static void ManualCascadeScan() =>
 			RunCatchupScan(Mechanism.Craftable, ProcessCraftableOutputs, "manual cascade scan");
 
+		// Also sweeps crate contents, which have their own toggle and per-crate hotkey: unpacking one crate
+		// is that hotkey's job, while this is the only way to clear a backlog of them at once.
 		public static void ManualMiscCascadeScan() =>
-			RunCatchupScan(Mechanism.Misc, ProcessMiscCascades, "manual misc. cascade scan");
+			RunCatchupScan(Mechanism.Misc | Mechanism.Crate, ProcessMiscCascadesAndCrates, "manual misc. cascade scan");
+
+		private static void ProcessMiscCascadesAndCrates(int type)
+		{
+			ProcessMiscCascades(type);
+			ProcessCrateContents(type);
+		}
 
 		// The odds and ends that share one config toggle and one manual trigger, rather than a mechanism
 		// substantial enough to get its own.
