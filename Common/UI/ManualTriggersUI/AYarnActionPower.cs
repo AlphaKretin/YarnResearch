@@ -33,10 +33,12 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 
 		protected abstract void DoAction();
 
-		public virtual bool GetIsUnlocked() => true;
+		// An ICreativePower member vanilla calls itself, not just something the strip consults. Every YARN
+		// power is always shown: a power whose mechanism isn't available yet stays visible and does nothing
+		// when used, rather than appearing and disappearing.
+		public bool GetIsUnlocked() => true;
 
-		// The built button, as a plain UIElement - all the strip needs it for is layout, hover detection,
-		// and appending/removing.
+		// The built button, as a plain UIElement - all the strip needs it for is layout and hover detection.
 		public abstract UIElement ButtonElement { get; }
 
 		public abstract void ProvidePowerButtons(CreativePowerUIElementRequestInfo info, List<UIElement> elements);
@@ -45,14 +47,6 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 		// player's own inventory, or toggling free crafting) only ever runs on the clicking client.
 		public void DeserializeNetMessage(BinaryReader reader, int whoAmI)
 		{
-		}
-
-		// Builds the button without appending it to a visible strip yet - used for a power (like the shimmer
-		// action) that starts locked and needs its button ready to insert later, once unlocked.
-		public void EnsureButtonBuilt(CreativePowerUIElementRequestInfo info)
-		{
-			if (ButtonElement == null)
-				ProvidePowerButtons(info, new List<UIElement>());
 		}
 
 		// Called once per game tick while the YARN strip is open - overridden by the destructive actions

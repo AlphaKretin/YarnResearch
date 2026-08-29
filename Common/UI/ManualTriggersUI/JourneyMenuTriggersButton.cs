@@ -73,9 +73,6 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 		private static ShimmerActionPower _shimmerPower;
 		private static SacrificeActionPower _sacrificePower;
 		private static ClearActionPower _clearPower;
-		// The powers whose buttons are currently in the strip - a power can be conditionally hidden (see
-		// GetIsUnlocked), and this is what layout counts slots from.
-		private static readonly HashSet<AYarnPower> _shownPowers = new();
 
 		public override void Load()
 		{
@@ -117,7 +114,6 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 			_shimmerPower = null;
 			_sacrificePower = null;
 			_clearPower = null;
-			_shownPowers.Clear();
 		}
 
 		// Strip order, top to bottom - the single source of truth for layout, so a new power only has to be
@@ -136,7 +132,7 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 
 		// This mod's ModSystem has no UIState of its own to hook an Update into, since the strip lives
 		// inside vanilla's UICreativePowersMenu - drives each power's per-tick state (confirm guards, icon
-		// tint, a toggle's picked state) and the shimmer button's visibility instead.
+		// tint, a toggle's picked state) instead.
 		//
 		// UpdateUI, not PostUpdateEverything: this is UI state that has to keep updating during Journey
 		// Mode's autopause, which skips the update path PostUpdateEverything runs on. A toggle's button
@@ -158,27 +154,6 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 					power.OnClosed();
 				return;
 			}
-
-			bool visibilityChanged = false;
-			foreach (AYarnPower power in AllPowers()) {
-				bool unlocked = power.GetIsUnlocked();
-				if (unlocked == _shownPowers.Contains(power))
-					continue;
-
-				if (unlocked) {
-					_yarnStrip.Append(power.ButtonElement);
-					_shownPowers.Add(power);
-				}
-				else {
-					_yarnStrip.RemoveChild(power.ButtonElement);
-					_shownPowers.Remove(power);
-				}
-
-				visibilityChanged = true;
-			}
-
-			if (visibilityChanged)
-				LayoutButtons();
 
 			foreach (AYarnPower power in AllPowers())
 				power.PerTickUpdate();
@@ -379,18 +354,9 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 			};
 
 			var elements = new List<UIElement>();
-			_shownPowers.Clear();
 
 			foreach (AYarnPower power in AllPowers()) {
-				if (power.GetIsUnlocked()) {
-					power.ProvidePowerButtons(info, elements);
-					_shownPowers.Add(power);
-				}
-				else {
-					// Built but withheld, ready to insert the moment it unlocks.
-					power.EnsureButtonBuilt(info);
-				}
-
+				power.ProvidePowerButtons(info, elements);
 				CopyActionButtonStyleFields(power);
 			}
 
@@ -398,20 +364,17 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 			LayoutButtons();
 		}
 
-		// Slots are assigned by walking AllPowers and skipping whatever is currently hidden, so no button
-		// carries a hardcoded index and the strip never leaves a gap where a hidden button would be. Also
-		// resizes the strip itself to fit its own visible content, matching how real strips size themselves.
+		// Slots are assigned by walking AllPowers, so no button carries a hardcoded index. Also resizes the
+		// strip itself to fit its own content, matching how real strips size themselves.
 		private static void LayoutButtons()
 		{
-			int visibleSlots = 0;
+			int slots = 0;
 
-			foreach (AYarnPower power in AllPowers()) {
-				if (_shownPowers.Contains(power))
-					SetSlotRectangle(power.ButtonElement, visibleSlots++);
-			}
+			foreach (AYarnPower power in AllPowers())
+				SetSlotRectangle(power.ButtonElement, slots++);
 
 			_yarnStrip.Width.Set(_buttonSlotSize + StripIconGap * 2f, 0f);
-			_yarnStrip.Height.Set(visibleSlots * (_buttonSlotSize + StripIconGap) + StripIconGap, 0f);
+			_yarnStrip.Height.Set(slots * (_buttonSlotSize + StripIconGap) + StripIconGap, 0f);
 		}
 
 		// Every real category strip is a single-column list (fixed one-button width, height scaling with
