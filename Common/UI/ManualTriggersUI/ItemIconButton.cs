@@ -14,7 +14,8 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 		private static readonly Vector2 DropShadowOffset = new(2f, 2f);
 
 		private readonly Asset<Texture2D> _icon;
-		private readonly Rectangle? _sourceRect;
+		private readonly Rectangle _sourceRect;
+		private readonly float _drawScale;
 		private readonly bool _drawDropShadow;
 
 		// Mutable so a caller can retint at runtime, e.g. to show an "are you sure" state on a
@@ -24,7 +25,8 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 		public ItemIconButton(YarnIcon icon)
 		{
 			_icon = icon.Texture;
-			_sourceRect = icon.Frame;
+			_sourceRect = icon.SourceRectangle;
+			_drawScale = icon.DrawScale;
 			_drawDropShadow = icon.DrawDropShadow;
 		}
 
@@ -32,12 +34,11 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 		{
 			Texture2D texture = _icon.Value;
 			CalculatedStyle dimensions = GetDimensions();
-			Rectangle sourceRect = _sourceRect ?? texture.Bounds;
 
-			float scale = MathHelper.Min(dimensions.Width / sourceRect.Width, dimensions.Height / sourceRect.Height);
-			scale = MathHelper.Min(scale, 1f);
+			float scale = MathHelper.Min(dimensions.Width / _sourceRect.Width, dimensions.Height / _sourceRect.Height);
+			scale = MathHelper.Min(scale, _drawScale);
 
-			var origin = new Vector2(sourceRect.Width, sourceRect.Height) / 2f;
+			var origin = new Vector2(_sourceRect.Width, _sourceRect.Height) / 2f;
 			// Round to a whole pixel - drawing pixel art at a fractional position makes the point-clamp
 			// sampler blend unevenly between texels, which reads as jagged edges.
 			var center = new Vector2(
@@ -45,9 +46,9 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 				(int)(dimensions.Y + dimensions.Height / 2f));
 
 			if (_drawDropShadow)
-				spriteBatch.Draw(texture, center + DropShadowOffset, sourceRect, YarnColors.IconDropShadow, 0f, origin, scale, SpriteEffects.None, 0f);
+				spriteBatch.Draw(texture, center + DropShadowOffset, _sourceRect,YarnColors.IconDropShadow, 0f, origin, scale, SpriteEffects.None, 0f);
 
-			spriteBatch.Draw(texture, center, sourceRect, IconTint, 0f, origin, scale, SpriteEffects.None, 0f);
+			spriteBatch.Draw(texture, center, _sourceRect,IconTint, 0f, origin, scale, SpriteEffects.None, 0f);
 		}
 	}
 }
