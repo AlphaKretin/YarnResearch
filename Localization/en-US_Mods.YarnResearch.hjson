@@ -1,70 +1,70 @@
 Configs: {
 	YarnResearchConfig: {
-		DisplayName: Yarn Research Config
+		DisplayName: YARN Config
 
 		Headers: {
-			Features: Features Header
-			Options: Options Header
+			Features: Automation Settings
+			Options: Misc. Settings
 		}
 
 		AutoResearchHeldItems: {
-			Label: Auto Research Held Items
+			Label: Auto-Research Held Items
 			Tooltip: ""
 		}
 
 		AutoResearchCraftable: {
-			Label: Auto Research Craftable
+			Label: Auto-Research Craftable Items
 			Tooltip: ""
-		}
-
-		InfiniteResearchedConsumables: {
-			Label: Infinite Researched Consumables
-			Tooltip: ""
-		}
-
-		ShowAutoResearchNotifications: {
-			Label: Show Auto Research Notifications
-			Tooltip: ""
-		}
-
-		AutoResearchMiscCascades: {
-			Tooltip: ""
-			Label: Auto Research Misc Cascades
 		}
 
 		AutoResearchShimmerOutputs: {
 			Tooltip: ""
-			Label: Auto Research Shimmer Outputs
+			Label: Auto-Research Shimmer Outputs
 		}
 
 		AutoResearchCrateContents: {
 			Tooltip: ""
-			Label: Auto Research Crate Contents
+			Label: Auto-Research Grab Bag Contents
+		}
+
+		AutoResearchMiscCascades: {
+			Tooltip: ""
+			Label: Auto-Research Misc. Sources
 		}
 
 		AutoResearchShopStock: {
 			Tooltip: ""
-			Label: Auto Research Shop Stock
+			Label: Auto-Research Shop Stock
+		}
+
+		InfiniteResearchedConsumables: {
+			Label: Researched Stacks Don't Decrease
+			Tooltip: ""
 		}
 
 		InfiniteResearchedBuffs: {
 			Tooltip: ""
-			Label: Infinite Researched Buffs
+			Label: Researched Buffs Don't Expire
+		}
+
+		ShowAutoResearchNotifications: {
+			Label: Show Notifications in Chat
+			Tooltip: ""
 		}
 	}
 }
 
 Keybinds: {
-	ResearchCrateContents.DisplayName: Research Crate Contents
+	ResearchCrateContents.DisplayName: Research Grab Bag Contents
 	ToggleInfiniteBuff.DisplayName: Toggle Infinite Buff
-	OpenPrefixPicker.DisplayName: Open Prefix Picker
+	OpenPrefixPicker.DisplayName: Choose Modifier
 }
 
 YarnResearchGlobalItem: {
-	ResearchCrateContentsHint: Press {0} to research its possible contents
-	ToggleInfiniteBuffHint: Press {0} to toggle its buff as infinite
-	OpenPrefixPickerHint: Press {0} to choose its duplication prefix
-	PrefixPickerPopupSetDefaultHint: Left-click to set as default
+	ResearchCrateContentsHint: Press {0} to research contents
+	ToggleInfiniteBuffHint: Press {0} to toggle buff
+	OpenPrefixPickerHint: Press {0} to choose modifier
+	PrefixPickerPopupSetDefaultHint: Left-click to set default modifier
 	PrefixPickerPopupDuplicateHint: Right-click to duplicate once
 }
 
@@ -72,35 +72,34 @@ ResearchCascadeSystem: {
 	Notification: "{0}: {1}"
 
 	Origins: {
-		Held: Auto-researched
-		Craftable: Auto-crafted
-		BiomeTorch: Auto-converted
-		Extractinator: Auto-extracted
-		Shimmer: Auto-discovered
-		Crate: Auto-unpacked
-		Sacrifice: Sacrificed
-		Shop: Auto-researched from shop
+		Held: Auto-Researched
+		Craftable: Auto-Crafted
+		BiomeTorch: Auto-Swapped
+		Extractinator: Auto-Extracted
+		Shimmer: Auto-Shimmered
+		Crate: Auto-Looted
+		Shop: Auto-Purchased
 	}
 }
 
-InfiniteBuffSystem.BuffBarFull: Your buff bar is full - can't toggle this on right now
-JourneyMenuTriggersButton.Tooltip: YARN manual research triggers
+InfiniteBuffSystem.BuffBarFull: Can't toggle buff - at buff cap
+JourneyMenuTriggersButton.Tooltip: YARN Powers
 HeldItemsActionPower.HoverText: Research Held Items
 CascadeActionPower.HoverText: Research Craftable Recipes
 MiscCascadeActionPower.HoverText: Research Misc. Sources
 ShimmerActionPower.HoverText: Research Shimmered Items
 
 FreeCraftingTogglePower: {
-	HoverText: Free Crafting - off
-	ActiveHoverText: Free Crafting - on (researched stations count as nearby)
+	HoverText: Craft Anywhere Disabled
+	ActiveHoverText: Craft Anywhere Enabled
 }
 
 SacrificeActionPower: {
-	HoverText: Sacrifice Unresearched Items
-	ArmedHoverText: Click again to confirm - sacrifices all unresearched items in your inventory!
+	HoverText: Consume Unresearched Items
+	ArmedHoverText: Consume Unresearched Items - Click again to confirm!
 }
 
 ClearActionPower: {
-	HoverText: Clear Fully-Researched Items
-	ArmedHoverText: Click again to confirm - destroys all fully-researched items in your inventory!
+	HoverText: Clear Researched Items
+	ArmedHoverText: Clear Researched Items - Click again to confirm!
 }
