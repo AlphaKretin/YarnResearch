@@ -15,12 +15,6 @@ namespace YarnResearch.Common.Configs
 		public bool AutoResearchCraftable;
 
 		[DefaultValue(true)]
-		public bool InfiniteResearchedConsumables;
-
-		[DefaultValue(true)]
-		public bool AutoResearchMiscCascades;
-
-		[DefaultValue(true)]
 		public bool AutoResearchShimmerOutputs;
 
 		[DefaultValue(true)]
@@ -30,9 +24,15 @@ namespace YarnResearch.Common.Configs
 		public bool AutoResearchShopStock;
 
 		[DefaultValue(true)]
-		public bool InfiniteResearchedBuffs;
+		public bool AutoResearchMiscCascades;
 
 		[Header("Options")]
+		[DefaultValue(true)]
+		public bool InfiniteResearchedConsumables;
+
+		[DefaultValue(true)]
+		public bool InfiniteResearchedBuffs;
+
 		[DefaultValue(true)]
 		public bool ShowAutoResearchNotifications;
 	}
