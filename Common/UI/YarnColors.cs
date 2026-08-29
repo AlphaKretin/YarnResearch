@@ -9,17 +9,17 @@ namespace YarnResearch.Common.UI
 	{
 		// Slot tints in the Journey duplication grid, drawn by SlotTint. Deliberately far apart in hue,
 		// since a slot only ever shows one of them and the tint is the only thing distinguishing the states.
-		public static readonly Color InfiniteBuffSlot = new(255, 140, 0);
+		public static readonly Color InfiniteBuffSlot = Color.LightGreen;
 
 		// The slot the prefix picker popup is currently open for.
-		public static readonly Color PrefixPickerTargetSlot = new(230, 220, 60);
+		public static readonly Color PrefixPickerTargetSlot = Color.LightGreen; // possibility for confusion exists but is low
 
 		// The mod's own tooltip lines (hotkey hints, popup controls), so they read as this mod's rather than
 		// as part of the item's real tooltip.
 		public static readonly Color TooltipHint = Color.Pink;
 
 		// A destructive powers-strip button whose confirm window is armed - see ConfirmGuard.
-		public static readonly Color ArmedActionIcon = Color.OrangeRed;
+		public static readonly Color ArmedActionIcon = Color.Red;
 
 		// Behind a powers-strip icon that doesn't have a drop shadow baked into its own sprite.
 		public static readonly Color IconDropShadow = new(0, 0, 0, 150);
