@@ -68,6 +68,8 @@ YarnResearchGlobalItem: {
 	PrefixPickerPopupDuplicateHint: Right-click to duplicate once
 }
 
+PrefixCandidate.NoPrefix: "[none]"
+
 ResearchCascadeSystem: {
 	Notification: "{0}: {1}"
 

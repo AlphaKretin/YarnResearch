@@ -17,6 +17,9 @@ namespace YarnResearch.Common.Systems
 	// a scratch item and read back what stuck.
 	public class PrefixTrial : ModSystem
 	{
+		// Vanilla's own "no prefix" id - Item.Prefix(0) is documented to do nothing.
+		public const int NoPrefixId = 0;
+
 		public readonly struct Result
 		{
 			// False when Item.Prefix rolled something other than what it was asked for.

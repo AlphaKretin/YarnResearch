@@ -8,6 +8,9 @@ namespace YarnResearch.Common.UI.PrefixPickerUI
 {
 	public readonly struct PrefixCandidate
 	{
+		private static readonly LocalizedText NoPrefixName =
+			ModContent.GetInstance<YarnResearch>().GetLocalization($"{nameof(PrefixCandidate)}.NoPrefix");
+
 		public readonly int PrefixId;
 		public readonly string DisplayName;
 		public readonly int Value;
@@ -39,6 +42,11 @@ namespace YarnResearch.Common.UI.PrefixPickerUI
 			// a side effect of actually applying the prefix), so GetPrefixValue rolls it onto a scratch item
 			// of the same type and reads back the resulting Item.value.
 			results.Sort((a, b) => b.Value.CompareTo(a.Value));
+
+			// Pinned to the top rather than sorted in by value: it's the "clear what's set here" row, not a
+			// modifier competing with the others on strength.
+			results.Insert(0, new PrefixCandidate(PrefixTrial.NoPrefixId, NoPrefixName.Value, 0));
+
 			return results;
 		}
 

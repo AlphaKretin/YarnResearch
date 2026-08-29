@@ -29,7 +29,15 @@ namespace YarnResearch.Common.Players
 		// building, handed to YarnResearchGlobalItem.OnCreated and consumed there in the same call.
 		private (int ItemType, int PrefixId)? _pendingOneShotPrefix;
 
-		public void SetDefaultPrefix(PrefixGroup group, int prefixId) => DefaultPrefixByGroup[group] = prefixId;
+		// Choosing "no modifier" clears the group's default rather than storing it: an unprefixed duplicate is
+		// what a group with no entry already produces, so the two would be the same state stored two ways.
+		public void SetDefaultPrefix(PrefixGroup group, int prefixId)
+		{
+			if (prefixId == PrefixTrial.NoPrefixId)
+				DefaultPrefixByGroup.Remove(group);
+			else
+				DefaultPrefixByGroup[group] = prefixId;
+		}
 
 		// A group's default still has to survive being applied to this particular item - the group is a set of
 		// items, not one item, so a prefix chosen on one member can be a no-op on another, and Item.Prefix

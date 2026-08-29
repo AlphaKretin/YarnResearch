@@ -44,8 +44,12 @@ namespace YarnResearch.Common.GlobalItems
 
 			YarnResearchPlayer player = Main.LocalPlayer.GetModPlayer<YarnResearchPlayer>();
 
-			if (player.TryConsumeOneShotPrefix(item.type, out int oneShotPrefix) && item.CanRollPrefix(oneShotPrefix)) {
-				item.Prefix(oneShotPrefix);
+			// A consumed one-shot is honoured whatever it is and always wins - including "no modifier", which
+			// has to stop here rather than fall through to the group default the player was overriding.
+			if (player.TryConsumeOneShotPrefix(item.type, out int oneShotPrefix)) {
+				if (oneShotPrefix != PrefixTrial.NoPrefixId && item.CanRollPrefix(oneShotPrefix))
+					item.Prefix(oneShotPrefix);
+
 				return;
 			}
 
