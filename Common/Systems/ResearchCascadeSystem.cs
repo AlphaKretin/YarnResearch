@@ -80,7 +80,8 @@ namespace YarnResearch.Common.Systems
 		// alone handles them correctly: ZenithWorld, Hardmode/PreHardmode, downed-boss flags, CrimsonWorld,
 		// CorruptWorld, NotRemixWorld, and BiomeSpreadingItems (whose predicate is a world-seed check,
 		// !Main.remixWorld || (Main.tenthAnniversaryWorld && !Main.getGoodWorld), despite the name).
-		private static readonly Dictionary<Condition, HashSet<int>> ConditionProxyItemTypes = new() {
+		private static readonly Dictionary<Condition, HashSet<int>> ConditionProxyItemTypes = new()
+		{
 			[Condition.InGraveyard] = new HashSet<int> {
 				ItemID.Tombstone, ItemID.GraveMarker, ItemID.CrossGraveMarker,
 				ItemID.Headstone, ItemID.Gravestone, ItemID.Obelisk,
@@ -373,7 +374,8 @@ namespace YarnResearch.Common.Systems
 				report.Append($"ResearchCascadeSystem cascade profile: {ToMs(elapsedTicks):F2}ms from batch start, " +
 					$"{_notifiedCount} items announced in chat");
 
-				for (int phase = 0; phase < PhaseLabels.Length; phase++) {
+				for (int phase = 0; phase < PhaseLabels.Length; phase++)
+				{
 					if (Calls[phase] > 0)
 						report.Append($"\n  {PhaseLabels[phase]}: {ToMs(Ticks[phase]):F2}ms over {Calls[phase]} calls");
 				}
@@ -382,7 +384,8 @@ namespace YarnResearch.Common.Systems
 					$"{GC.CollectionCount(0) - _startGen0} / gen1 {GC.CollectionCount(1) - _startGen1} / " +
 					$"gen2 {GC.CollectionCount(2) - _startGen2}");
 
-				if (_slowestStepTicks > 0) {
+				if (_slowestStepTicks > 0)
+				{
 					string name = ContentSamples.ItemsByType.TryGetValue(_slowestStepType, out Item item)
 						? item.Name : _slowestStepType.ToString();
 					report.Append($"\n  slowest single drained type: {name} at {ToMs(_slowestStepTicks):F2}ms");
@@ -398,7 +401,8 @@ namespace YarnResearch.Common.Systems
 		{
 			var result = new Dictionary<int, List<Condition>>();
 
-			foreach ((Condition condition, HashSet<int> itemTypes) in ConditionProxyItemTypes) {
+			foreach ((Condition condition, HashSet<int> itemTypes) in ConditionProxyItemTypes)
+			{
 				foreach (int itemType in itemTypes)
 					AddToIndex(result, itemType, condition);
 			}
@@ -408,7 +412,8 @@ namespace YarnResearch.Common.Systems
 
 		private static void AddToIndex<TKey, TValue>(Dictionary<TKey, List<TValue>> index, TKey key, TValue value)
 		{
-			if (!index.TryGetValue(key, out List<TValue> values)) {
+			if (!index.TryGetValue(key, out List<TValue> values))
+			{
 				values = new List<TValue>();
 				index[key] = values;
 			}
@@ -466,7 +471,8 @@ namespace YarnResearch.Common.Systems
 			List<int> recipesToRecheck = null;
 
 			if (config.AutoResearchCraftable &&
-				(RecipesRequiringCondition.Count > 0 || RecipesRequiringTorchGodsFavor.Count > 0)) {
+				(RecipesRequiringCondition.Count > 0 || RecipesRequiringTorchGodsFavor.Count > 0))
+			{
 				// Player.adjTile/adjWaterSource/adjLava/adjHoney (what NearWater/NearLava/NearHoney read) are
 				// normally only recomputed by the crafting UI's own per-frame update, not by ordinary
 				// Player.Update - without this, NearWater stays false while standing in water and only flips
@@ -475,7 +481,8 @@ namespace YarnResearch.Common.Systems
 				// whether any menu is open.
 				Main.LocalPlayer.AdjTiles();
 
-				foreach ((Condition condition, List<int> recipeIndices) in RecipesRequiringCondition) {
+				foreach ((Condition condition, List<int> recipeIndices) in RecipesRequiringCondition)
+				{
 					bool isMet = condition.IsMet();
 					bool wasMet = LiveConditionWasMet.TryGetValue(condition, out bool previous) && previous;
 					LiveConditionWasMet[condition] = isMet;
@@ -496,18 +503,22 @@ namespace YarnResearch.Common.Systems
 				return;
 
 			BeginBatch();
-			try {
-				if (recipesToRecheck != null) {
+			try
+			{
+				if (recipesToRecheck != null)
+				{
 					foreach (int recipeIndex in recipesToRecheck)
 						TryResearchRecipeOutput(recipeIndex);
 				}
 
-				if (catchUpBiomeTorches) {
+				if (catchUpBiomeTorches)
+				{
 					foreach (int type in ResearchedTypes.ToArray())
 						ProcessBiomeTorchVariants(type);
 				}
 			}
-			finally {
+			finally
+			{
 				EndBatch();
 			}
 		}
@@ -518,7 +529,8 @@ namespace YarnResearch.Common.Systems
 				return true;
 
 			CreativeUI.GetSacrificeCount(type, out bool fullyResearched);
-			if (fullyResearched) {
+			if (fullyResearched)
+			{
 				ResearchedTypes.Add(type);
 				NoteStationTile(type);
 			}
@@ -623,11 +635,13 @@ namespace YarnResearch.Common.Systems
 
 			BeginBatch();
 			_forcedMechanisms |= mechanism;
-			try {
+			try
+			{
 				foreach (int type in snapshot)
 					processType(type);
 			}
-			finally {
+			finally
+			{
 				EndBatch();
 				_forcedMechanisms &= ~mechanism;
 			}
@@ -648,7 +662,8 @@ namespace YarnResearch.Common.Systems
 		{
 			using var _ = CascadeProfile.Time(CascadeProfile.Phase.Shimmer);
 
-			if (ShimmerOutputsByInput.TryGetValue(type, out int transformOutput)) {
+			if (ShimmerOutputsByInput.TryGetValue(type, out int transformOutput))
+			{
 				AttemptShimmerResearch(transformOutput);
 				return;
 			}
@@ -677,7 +692,8 @@ namespace YarnResearch.Common.Systems
 			if (!Main.LocalPlayer.unlockedBiomeTorches || !(ItemID.Sets.Torches[type] || ItemID.Sets.Campfires[type]))
 				return;
 
-			foreach (int variant in GetBiomeTorchVariants(type)) {
+			foreach (int variant in GetBiomeTorchVariants(type))
+			{
 				if (IsUnresearchedAndResearchable(variant))
 					ResearchWithOrigin(variant, ResearchOrigin.BiomeTorch);
 			}
@@ -699,10 +715,12 @@ namespace YarnResearch.Common.Systems
 			bool realUsingBiomeTorches = player.UsingBiomeTorches;
 			var variants = new HashSet<int>();
 
-			try {
+			try
+			{
 				player.UsingBiomeTorches = true;
 
-				for (int biome = 0; biome < BiomeTorchZones.Length; biome++) {
+				for (int biome = 0; biome < BiomeTorchZones.Length; biome++)
+				{
 					for (int other = 0; other < BiomeTorchZones.Length; other++)
 						BiomeTorchZones[other].Set(player, other == biome);
 
@@ -711,7 +729,8 @@ namespace YarnResearch.Common.Systems
 						variants.Add(converted);
 				}
 			}
-			finally {
+			finally
+			{
 				for (int biome = 0; biome < BiomeTorchZones.Length; biome++)
 					BiomeTorchZones[biome].Set(player, realZones[biome]);
 
@@ -737,8 +756,10 @@ namespace YarnResearch.Common.Systems
 			// The machine arriving is the moment every already-researched material becomes extractable, so
 			// it sweeps them all rather than yielding anything itself.
 			if (ContentSamples.ItemsByType.TryGetValue(type, out Item item) &&
-				Array.IndexOf(ExtractinatorTiles, item.createTile) >= 0) {
-				foreach (int researched in ResearchedTypes.ToArray()) {
+				Array.IndexOf(ExtractinatorTiles, item.createTile) >= 0)
+			{
+				foreach (int researched in ResearchedTypes.ToArray())
+				{
 					ProcessExtractedMaterial(researched);
 					ProcessChlorophyteTrade(researched);
 				}
@@ -783,11 +804,13 @@ namespace YarnResearch.Common.Systems
 			if (extractMode < 0)
 				return;
 
-			foreach (int blockType in ExtractinatorTiles) {
+			foreach (int blockType in ExtractinatorTiles)
+			{
 				if (!ResearchedStationTiles.Contains(blockType))
 					continue;
 
-				foreach (int outputType in GetExtractinatorOutputs(extractMode, blockType)) {
+				foreach (int outputType in GetExtractinatorOutputs(extractMode, blockType))
+				{
 					if (IsUnresearchedAndResearchable(outputType))
 						ResearchWithOrigin(outputType, ResearchOrigin.Extractinator);
 				}
@@ -809,10 +832,12 @@ namespace YarnResearch.Common.Systems
 			var outputs = new HashSet<int>();
 			UnifiedRandom realRand = Main.rand;
 
-			try {
+			try
+			{
 				Main.rand = new UnifiedRandom(ExtractinatorSampleSeed);
 
-				for (int roll = 0; roll < ExtractinatorRollSamples; roll++) {
+				for (int roll = 0; roll < ExtractinatorRollSamples; roll++)
+				{
 					ExtractinatorHelper.RollExtractinatorDrop(extractMode, blockType, out int itemType, out int stack);
 
 					// Same order Player.ExtractinatorUse itself uses: mods get to replace or add to the
@@ -824,7 +849,8 @@ namespace YarnResearch.Common.Systems
 						outputs.Add(itemType);
 				}
 			}
-			finally {
+			finally
+			{
 				Main.rand = realRand;
 			}
 
@@ -853,10 +879,12 @@ namespace YarnResearch.Common.Systems
 
 			BeginBatch();
 			_forcedMechanisms |= Mechanism.Crate;
-			try {
+			try
+			{
 				ProcessCrateContents(type);
 			}
-			finally {
+			finally
+			{
 				EndBatch();
 				_forcedMechanisms &= ~Mechanism.Crate;
 			}
@@ -867,7 +895,11 @@ namespace YarnResearch.Common.Systems
 		// appearing once there's nothing left for the hotkey to do.
 		public static bool HasUnresearchedCrateContents(int crateType)
 		{
-			foreach (int contentType in GetPossibleCrateContents(crateType)) {
+			if (!HasCrateKey(crateType))
+				return false;
+
+			foreach (int contentType in GetPossibleCrateContents(crateType))
+			{
 				if (IsUnresearchedAndResearchable(contentType))
 					return true;
 			}
@@ -895,9 +927,36 @@ namespace YarnResearch.Common.Systems
 		{
 			using var _ = CascadeProfile.Time(CascadeProfile.Phase.Crate);
 
-			foreach (int contentType in GetPossibleCrateContents(type))
+			// A key arriving is what unlocks the lock boxes that were waiting on it, so it has to sweep them
+			// - they are already researched by then, and nothing else would revisit them.
+			foreach ((int lockBoxType, int keyType) in LockBoxKeys)
+			{
+				if (keyType == type && IsResearched(lockBoxType))
+					UnpackCrate(lockBoxType);
+			}
+
+			if (HasCrateKey(type))
+				UnpackCrate(type);
+		}
+
+		private static void UnpackCrate(int crateType)
+		{
+			foreach (int contentType in GetPossibleCrateContents(crateType))
 				AttemptCrateResearch(contentType);
 		}
+
+		// A lock box can't be opened without its key in hand, so owning one isn't owning its contents until
+		// the key is researched too.
+		//
+		// Sucky hardcode - a lot of investigation couldn't find a viable path to determine this at runtime.
+		private static readonly Dictionary<int, int> LockBoxKeys = new()
+		{
+			[ItemID.LockBox] = ItemID.GoldenKey,
+			[ItemID.ObsidianLockbox] = ItemID.ShadowKey,
+		};
+
+		private static bool HasCrateKey(int crateType) =>
+			!LockBoxKeys.TryGetValue(crateType, out int keyType) || IsResearched(keyType);
 
 		private static void AttemptCrateResearch(int outputType)
 		{
@@ -929,19 +988,24 @@ namespace YarnResearch.Common.Systems
 				return;
 
 			BeginBatch();
-			try {
-				if (shop is TravelingMerchantShop) {
-					foreach (int itemType in Main.travelShop) {
+			try
+			{
+				if (shop is TravelingMerchantShop)
+				{
+					foreach (int itemType in Main.travelShop)
+					{
 						if (itemType != 0)
 							AttemptShopResearch(itemType);
 					}
 				}
-				else if (shop is NPCShop npcShop) {
+				else if (shop is NPCShop npcShop)
+				{
 					foreach (NPCShop.Entry entry in npcShop.Entries)
 						AttemptShopResearch(entry);
 				}
 			}
-			finally {
+			finally
+			{
 				EndBatch();
 			}
 		}
@@ -1006,7 +1070,8 @@ namespace YarnResearch.Common.Systems
 		{
 			bool allowProxy = !IsPylonItem(entry.Item.type);
 
-			foreach (Condition condition in entry.Conditions) {
+			foreach (Condition condition in entry.Conditions)
+			{
 				if (condition.IsMet())
 					continue;
 
@@ -1058,10 +1123,12 @@ namespace YarnResearch.Common.Systems
 				return;
 
 			_activeCascadeQueue = queue;
-			try {
+			try
+			{
 				DrainAndLog(queue);
 			}
-			finally {
+			finally
+			{
 				_activeCascadeQueue = null;
 			}
 
@@ -1097,18 +1164,21 @@ namespace YarnResearch.Common.Systems
 				return;
 
 			Queue<int> notificationQueue = null;
-			for (int origin = 0; origin < PendingOrigins.Length; origin++) {
+			for (int origin = 0; origin < PendingOrigins.Length; origin++)
+			{
 				if (PendingOrigins[origin].Remove(type))
 					notificationQueue ??= PendingNotifications[origin];
 			}
 
-			if (_activeCascadeQueue != null) {
+			if (_activeCascadeQueue != null)
+			{
 				// The active DrainCascade loop owns processing this type further.
 				MarkResearched(type, _activeCascadeQueue, notificationQueue);
 				return;
 			}
 
-			if (_batchQueue != null) {
+			if (_batchQueue != null)
+			{
 				// Collected, not drained yet - EndBatch drains and flushes everything together.
 				MarkResearched(type, _batchQueue, notificationQueue);
 				return;
@@ -1120,10 +1190,12 @@ namespace YarnResearch.Common.Systems
 			MarkResearched(type, queue, notificationQueue);
 
 			_activeCascadeQueue = queue;
-			try {
+			try
+			{
 				DrainAndLog(queue);
 			}
-			finally {
+			finally
+			{
 				_activeCascadeQueue = null;
 			}
 
@@ -1142,12 +1214,14 @@ namespace YarnResearch.Common.Systems
 			BiomeTorchVariants.Clear();
 
 			int[] shimmerTransforms = ItemID.Sets.ShimmerTransformToItem;
-			for (int type = 0; type < shimmerTransforms.Length; type++) {
+			for (int type = 0; type < shimmerTransforms.Length; type++)
+			{
 				if (shimmerTransforms[type] > 0)
 					ShimmerOutputsByInput[type] = shimmerTransforms[type];
 			}
 
-			for (int i = 0; i < Recipe.numRecipes; i++) {
+			for (int i = 0; i < Recipe.numRecipes; i++)
+			{
 				Recipe recipe = Main.recipe[i];
 
 				foreach (Item ingredient in recipe.requiredItem)
@@ -1163,7 +1237,8 @@ namespace YarnResearch.Common.Systems
 					RecipesRequiringTorchGodsFavor.Add(i);
 			}
 
-			for (int type = 0; type < ItemLoader.ItemCount; type++) {
+			for (int type = 0; type < ItemLoader.ItemCount; type++)
+			{
 				if (!ContentSamples.ItemsByType.TryGetValue(type, out Item item) || item.createTile == -1)
 					continue;
 
@@ -1205,12 +1280,14 @@ namespace YarnResearch.Common.Systems
 			LiveConditionWasMet.Clear();
 			_torchGodsFavorWasUnlocked = false;
 
-			for (int type = 0; type < ItemLoader.ItemCount; type++) {
+			for (int type = 0; type < ItemLoader.ItemCount; type++)
+			{
 				if (!ContentSamples.ItemsByType.TryGetValue(type, out Item item) || item.ResearchUnlockCount <= 0)
 					continue;
 
 				CreativeUI.GetSacrificeCount(type, out bool fullyResearched);
-				if (fullyResearched) {
+				if (fullyResearched)
+				{
 					ResearchedTypes.Add(type);
 					NoteStationTile(type);
 				}
@@ -1221,7 +1298,8 @@ namespace YarnResearch.Common.Systems
 		{
 			var config = ModContent.GetInstance<YarnResearchConfig>();
 
-			while (queue.Count > 0) {
+			while (queue.Count > 0)
+			{
 				int type = queue.Dequeue();
 				stepsProcessed++;
 				long stepStart = Stopwatch.GetTimestamp();
@@ -1259,19 +1337,23 @@ namespace YarnResearch.Common.Systems
 		{
 			using var _ = CascadeProfile.Time(CascadeProfile.Phase.Craftable);
 
-			if (RecipesConsumingItem.TryGetValue(type, out List<int> ingredientRecipes)) {
+			if (RecipesConsumingItem.TryGetValue(type, out List<int> ingredientRecipes))
+			{
 				foreach (int recipeIndex in ingredientRecipes)
 					TryResearchRecipeOutput(recipeIndex);
 			}
 
 			if (ContentSamples.ItemsByType.TryGetValue(type, out Item stationItem) && stationItem.createTile != -1 &&
-				RecipesRequiringTile.TryGetValue(stationItem.createTile, out List<int> stationRecipes)) {
+				RecipesRequiringTile.TryGetValue(stationItem.createTile, out List<int> stationRecipes))
+			{
 				foreach (int recipeIndex in stationRecipes)
 					TryResearchRecipeOutput(recipeIndex);
 			}
 
-			if (ConditionsByProxyItemType.TryGetValue(type, out List<Condition> proxiedConditions)) {
-				foreach (Condition condition in proxiedConditions) {
+			if (ConditionsByProxyItemType.TryGetValue(type, out List<Condition> proxiedConditions))
+			{
+				foreach (Condition condition in proxiedConditions)
+				{
 					if (!RecipesRequiringCondition.TryGetValue(condition, out List<int> conditionRecipes))
 						continue;
 
@@ -1300,7 +1382,8 @@ namespace YarnResearch.Common.Systems
 
 		private static bool AllIngredientsResearched(Recipe recipe)
 		{
-			foreach (Item ingredient in recipe.requiredItem) {
+			foreach (Item ingredient in recipe.requiredItem)
+			{
 				if (!ResearchedTypes.Contains(ingredient.type))
 					return false;
 			}
@@ -1332,7 +1415,8 @@ namespace YarnResearch.Common.Systems
 		// silently bypassed.
 		private static bool ConditionsSatisfiable(Recipe recipe)
 		{
-			foreach (Condition condition in recipe.Conditions) {
+			foreach (Condition condition in recipe.Conditions)
+			{
 				if (!condition.IsMet() && !ConditionProxyResearched(condition))
 					return false;
 			}
@@ -1359,8 +1443,10 @@ namespace YarnResearch.Common.Systems
 			using var _ = CascadeProfile.Time(CascadeProfile.Phase.Notifications);
 
 			var config = ModContent.GetInstance<YarnResearchConfig>();
-			if (config.ShowAutoResearchNotifications) {
-				for (int origin = 0; origin < PendingNotifications.Length; origin++) {
+			if (config.ShowAutoResearchNotifications)
+			{
+				for (int origin = 0; origin < PendingNotifications.Length; origin++)
+				{
 					if (PendingNotifications[origin].Count == 0)
 						continue;
 
@@ -1419,7 +1505,8 @@ namespace YarnResearch.Common.Systems
 
 		private static void RequestTagTextures()
 		{
-			foreach (int type in TaggedTypes) {
+			foreach (int type in TaggedTypes)
+			{
 				if (type < 0 || type >= TextureAssets.Item.Length)
 					continue;
 
@@ -1441,12 +1528,14 @@ namespace YarnResearch.Common.Systems
 			long start = Stopwatch.GetTimestamp();
 			int inFlight = 0;
 
-			for (int i = 0; i < _deferredLoadIndex; i++) {
+			for (int i = 0; i < _deferredLoadIndex; i++)
+			{
 				if (TextureAssets.Item[DeferredTextureTypes[i]].State != AssetState.Loaded)
 					inFlight++;
 			}
 
-			while (inFlight < MaxTexturesInFlight && _deferredLoadIndex < DeferredTextureTypes.Count) {
+			while (inFlight < MaxTexturesInFlight && _deferredLoadIndex < DeferredTextureTypes.Count)
+			{
 				Asset<Texture2D> texture = TextureAssets.Item[DeferredTextureTypes[_deferredLoadIndex++]];
 
 				if (texture.State == AssetState.Loaded)
@@ -1487,7 +1576,8 @@ namespace YarnResearch.Common.Systems
 			// attempt showed 654ms across a single frame. Total elapsed and posting cost both looked fine
 			// there, so neither is evidence on its own. Pump ms is our own bookkeeping, expected to stay
 			// near zero - if it is not, the in-flight scan is the problem rather than the loading.
-			if (_deferredColdCount > 0) {
+			if (_deferredColdCount > 0)
+			{
 				uint framesElapsed = Main.GameUpdateCount - _deferStartUpdateCount;
 				ModContent.GetInstance<YarnResearch>().Logger.Info(
 					$"ResearchCascadeSystem notification: {_deferredColdCount} cold textures warmed over " +
@@ -1519,7 +1609,8 @@ namespace YarnResearch.Common.Systems
 		{
 			var tags = new List<string>();
 
-			foreach (int type in types) {
+			foreach (int type in types)
+			{
 				if (!ContentSamples.ItemsByType.TryGetValue(type, out Item item))
 					continue;
 
