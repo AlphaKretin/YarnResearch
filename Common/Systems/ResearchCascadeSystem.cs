@@ -34,7 +34,6 @@ namespace YarnResearch.Common.Systems
 			Extractinator,
 			Shimmer,
 			Crate,
-			Sacrifice,
 			Shop,
 		}
 
@@ -568,13 +567,6 @@ namespace YarnResearch.Common.Systems
 
 		// The held-item threshold path, driven by YarnResearchPlayer's inventory scan.
 		public static void ResearchAsHeldItem(int type) => ResearchWithOrigin(type, ResearchOrigin.Held);
-
-		// The bulk-sacrifice trigger can't go through ResearchWithOrigin - it researches by consuming the
-		// stack via Main.CreativeMenu.SacrificeItem rather than by calling CreativeUI.ResearchItem - so it
-		// brackets that call with these instead.
-		public static void RegisterSacrificeOrigin(int type) => PendingOrigins[(int)ResearchOrigin.Sacrifice].Add(type);
-
-		public static void ClearSacrificeOrigin(int type) => PendingOrigins[(int)ResearchOrigin.Sacrifice].Remove(type);
 
 		// Idempotent - safe to call every tick while the player is near Shimmer. Sets the persisted
 		// per-world "has seen Shimmer" flag unconditionally (independent of the AutoResearchShimmerOutputs

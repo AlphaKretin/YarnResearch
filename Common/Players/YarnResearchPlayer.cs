@@ -178,10 +178,7 @@ namespace YarnResearch.Common.Players
 					if (ResearchCascadeSystem.IsResearched(item.type))
 						continue;
 
-					ResearchCascadeSystem.RegisterSacrificeOrigin(item.type);
 					Main.CreativeMenu.SacrificeItem(ref item, out int amountSacrificed, spawnExcessItem: false, onlySacrificeIfItWouldFinishResearch: false);
-					ResearchCascadeSystem.ClearSacrificeOrigin(item.type);
-
 					inventory[i] = item;
 					sacrificedAnything |= amountSacrificed > 0;
 				}
