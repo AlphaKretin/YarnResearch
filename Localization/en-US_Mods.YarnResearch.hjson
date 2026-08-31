@@ -72,6 +72,7 @@ PrefixCandidate.NoPrefix: "[none]"
 
 ResearchCascadeSystem: {
 	Notification: "{0}: {1}"
+	TeammateNotification: "{0} by {1}: {2}"
 
 	Origins: {
 		Held: Auto-Researched

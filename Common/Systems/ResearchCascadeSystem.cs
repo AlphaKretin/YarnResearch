@@ -18,6 +18,7 @@ using Terraria.ModLoader;
 using Terraria.ModLoader.IO;
 using Terraria.Utilities;
 using YarnResearch.Common.Configs;
+using YarnResearch.Common.Net;
 using YarnResearch.Common.Players;
 
 namespace YarnResearch.Common.Systems
@@ -42,6 +43,10 @@ namespace YarnResearch.Common.Systems
 			Enum.GetValues<ResearchOrigin>().Select(origin => Localization($"Origins.{origin}")).ToArray();
 
 		private static readonly LocalizedText NotificationText = Localization("Notification");
+
+		// The same line as NotificationText, with the teammate whose YARN performed the research named -
+		// see AnnounceTeammateResearch.
+		private static readonly LocalizedText TeammateNotificationText = Localization("TeammateNotification");
 
 		private static LocalizedText Localization(string key) =>
 			ModContent.GetInstance<YarnResearch>().GetLocalization($"{nameof(ResearchCascadeSystem)}.{key}");
@@ -588,6 +593,12 @@ namespace YarnResearch.Common.Systems
 		// Externally-arrived unlocks awaiting their batch.
 		private static readonly HashSet<int> ExternalUnlocks = new();
 
+		// Every type that has ever arrived externally this world, kept for the world's life rather than
+		// consumed with ExternalUnlocks. AnnounceTeammateResearch filters a teammate's mirrored notification
+		// against it, so the mirror only ever covers items that genuinely came over the wire - never ones
+		// this client's own YARN derived and already announced under its own label.
+		private static readonly HashSet<int> ExternallyResearchedTypes = new();
+
 		// Cached so the per-item callback ForEachItemWithResearchProgress takes isn't allocated per scan.
 		private static readonly Action<int> NoteIfExternallyResearched = type =>
 		{
@@ -626,9 +637,11 @@ namespace YarnResearch.Common.Systems
 					if (ResearchedTypes.Contains(type))
 						continue;
 
-					// No notification queue: an unlock arriving from a teammate is silent in vanilla, so it
-					// stays silent here too. Any further items this unlock cascades into are this client's
-					// own work and do notify.
+					ExternallyResearchedTypes.Add(type);
+
+					// No notification queue: an unlock arriving from a teammate is silent in vanilla, and
+					// only their YARN announcing it (AnnounceTeammateResearch) should break that silence.
+					// Any further items this unlock cascades into are this client's own work and do notify.
 					MarkResearched(type, _batchQueue, notificationQueue: null);
 
 					// The other half of what GlobalItem.OnResearched would have done. Infinite buffs not
@@ -642,6 +655,41 @@ namespace YarnResearch.Common.Systems
 				ExternalUnlocks.Clear();
 				EndBatch();
 			}
+		}
+
+		// A teammate's YARN announced an automatic research batch and mirrored it here. Only the types that
+		// actually reached this client over the wire are echoed: anything this client researched itself has
+		// already been announced under its own origin, and anything a teammate researched by hand never
+		// sends a mirror at all, so vanilla's silence there is preserved.
+		public static void AnnounceTeammateResearch(int sender, int origin, List<int> types)
+		{
+			if (!ModContent.GetInstance<YarnResearchConfig>().ShowAutoResearchNotifications ||
+				origin < 0 || origin >= NotificationLabels.Length ||
+				sender < 0 || sender >= Main.maxPlayers || !Main.player[sender].active)
+				return;
+
+			TaggedTypes.Clear();
+
+			ItemsSacrificedUnlocksTracker tracker = Main.LocalPlayerCreativeTracker.ItemSacrifices;
+			var shared = new List<int>();
+
+			foreach (int type in types)
+			{
+				// Either signal means the unlock arrived from outside this client. Vanilla's own teammate
+				// credit is set the moment the shared unlock is applied, which the record alone is not - it
+				// is filled by the next UpdateUI tick, and a mirror can reach us inside the same tick.
+				if (tracker.TryGetTeammateUnlockCredit(type, out _) || ExternallyResearchedTypes.Contains(type))
+					shared.Add(type);
+			}
+
+			if (shared.Count == 0)
+				return;
+
+			string tagList = BuildTagList(shared, TaggedTypes);
+			DeferNotification(TeammateNotificationText.Format(
+				NotificationLabels[origin].Value, Main.player[sender].name, tagList));
+
+			RequestTagTextures();
 		}
 
 		private static void NoteStationTile(int type)
@@ -1380,6 +1428,7 @@ namespace YarnResearch.Common.Systems
 			// The sweep below is this world's baseline, so nothing already in the tracker at join counts as
 			// externally arrived - only edits made from here on.
 			ExternalUnlocks.Clear();
+			ExternallyResearchedTypes.Clear();
 			_lastTrackerEditId = Main.LocalPlayerCreativeTracker.ItemSacrifices.LastEditId;
 
 			foreach (HashSet<int> origins in PendingOrigins)
@@ -1574,6 +1623,11 @@ namespace YarnResearch.Common.Systems
 
 					using (CascadeProfile.Time(CascadeProfile.Phase.NewText))
 						DeferNotification(NotificationText.Format(NotificationLabels[origin].Value, tagList));
+
+					// Mirrored to teammates from here rather than from the research itself, so exactly what
+					// this player was told is what they are told - and research done by hand, which posts
+					// nothing here, stays as silent for them as vanilla leaves it.
+					YarnNetwork.SendAutoResearchNotification(origin, PendingNotifications[origin]);
 				}
 
 				RequestTagTextures();
@@ -1721,7 +1775,7 @@ namespace YarnResearch.Common.Systems
 
 		// taggedTypes collects the types that made it into the list, so the caller can pre-load exactly
 		// those textures.
-		private static string BuildTagList(Queue<int> types, List<int> taggedTypes)
+		private static string BuildTagList(IEnumerable<int> types, List<int> taggedTypes)
 		{
 			var tags = new List<string>();
 
