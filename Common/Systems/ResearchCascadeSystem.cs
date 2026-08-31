@@ -152,6 +152,11 @@ namespace YarnResearch.Common.Systems
 		// true.
 		private static readonly Dictionary<Condition, bool> LiveConditionWasMet = new();
 
+		// Station tiles the player was standing next to on the previous tick, so walking up to one triggers
+		// the same false->true recheck a Condition does. Purely live: this records nothing about having been
+		// there, so walking away takes the station's recipes back with it, exactly as vanilla crafting does.
+		private static readonly HashSet<int> LiveAdjacentStationTiles = new();
+
 		// Recipe indices gated by Recipe.needTorchGodsFavor - tracked separately from
 		// RecipesRequiringCondition since this gate isn't a Condition at all (see TorchGodsFavorSatisfied).
 		// Watched the same way: a false->true transition on Player.unlockedBiomeTorches rechecks every
@@ -451,11 +456,11 @@ namespace YarnResearch.Common.Systems
 				TryUnpackCrate(hoverItem.type);
 		}
 
-		// Watches every recipe-gating Condition (proxied or not), plus the altar tile-station proxy and
-		// Torch God's Favor, for a false->true transition, so a recipe blocked only by an unmet gate gets
-		// rechecked the instant it actually becomes true (e.g. the player walks near lava, or finds a Demon
-		// Altar). Includes proxied Conditions, so meeting the real requirement works even before the proxy
-		// item is ever researched, exactly like a real crafting attempt would.
+		// Watches every recipe-gating Condition (proxied or not), plus station adjacency and Torch God's
+		// Favor, for a false->true transition, so a recipe blocked only by an unmet gate gets rechecked the
+		// instant it actually becomes true (e.g. the player walks near lava, or up to a Demon Altar).
+		// Includes proxied Conditions, so meeting the real requirement works even before the proxy item is
+		// ever researched, exactly like a real crafting attempt would.
 		// TryResearchRecipeOutput/ConditionsSatisfiable/StationResearched still re-verify everything, so
 		// this is only a trigger. The Torch God's Favor edge additionally drives the one-off biome-torch
 		// catch-up, since that unlock retroactively widens what an already-researched torch is worth. Called from YarnResearchPlayer.PostUpdate rather than UpdateUI: this is a
@@ -471,7 +476,8 @@ namespace YarnResearch.Common.Systems
 			List<int> recipesToRecheck = null;
 
 			if (config.AutoResearchCraftable &&
-				(RecipesRequiringCondition.Count > 0 || RecipesRequiringTorchGodsFavor.Count > 0))
+				(RecipesRequiringCondition.Count > 0 || RecipesRequiringTile.Count > 0 ||
+					RecipesRequiringTorchGodsFavor.Count > 0))
 			{
 				// Player.adjTile/adjWaterSource/adjLava/adjHoney (what NearWater/NearLava/NearHoney read) are
 				// normally only recomputed by the crafting UI's own per-frame update, not by ordinary
@@ -490,6 +496,8 @@ namespace YarnResearch.Common.Systems
 					if (isMet && !wasMet)
 						(recipesToRecheck ??= new List<int>()).AddRange(recipeIndices);
 				}
+
+				CheckLiveStationEdges(ref recipesToRecheck);
 
 				if (torchGodsFavorJustUnlocked)
 					(recipesToRecheck ??= new List<int>()).AddRange(RecipesRequiringTorchGodsFavor);
@@ -521,6 +529,32 @@ namespace YarnResearch.Common.Systems
 			{
 				EndBatch();
 			}
+		}
+
+		// A station the player is physically standing next to can be crafted at right now, whether or not its
+		// item has ever been researched, so the recipes it gates get the same false->true recheck a Condition
+		// gets - StationResearched honours the same live adjacency, so those recipes actually pass. Adjacency
+		// is only ever read live: walking away simply stops satisfying them, the same way stepping out of
+		// water closes NearWater's recipes again.
+		private static void CheckLiveStationEdges(ref List<int> recipesToRecheck)
+		{
+			foreach ((int tile, List<int> recipeIndices) in RecipesRequiringTile)
+			{
+				if (!IsStandingAtStation(tile))
+				{
+					LiveAdjacentStationTiles.Remove(tile);
+					continue;
+				}
+
+				if (LiveAdjacentStationTiles.Add(tile))
+					(recipesToRecheck ??= new List<int>()).AddRange(recipeIndices);
+			}
+		}
+
+		private static bool IsStandingAtStation(int tile)
+		{
+			bool[] adjTile = Main.LocalPlayer.adjTile;
+			return tile >= 0 && tile < adjTile.Length && adjTile[tile];
 		}
 
 		public static bool IsResearched(int type)
@@ -1278,6 +1312,7 @@ namespace YarnResearch.Common.Systems
 			// being played rather than to the mod load - carrying them over would swallow the first real
 			// transition in the world being entered.
 			LiveConditionWasMet.Clear();
+			LiveAdjacentStationTiles.Clear();
 			_torchGodsFavorWasUnlocked = false;
 
 			for (int type = 0; type < ItemLoader.ItemCount; type++)
@@ -1394,6 +1429,10 @@ namespace YarnResearch.Common.Systems
 		private static bool StationResearched(Recipe recipe)
 		{
 			if (recipe.requiredTile < 0)
+				return true;
+
+			// Owning the station item isn't the only way to be able to craft at it - see CheckLiveStationEdges.
+			if (IsStandingAtStation(recipe.requiredTile))
 				return true;
 
 			return StationItemTypesByTile.TryGetValue(recipe.requiredTile, out List<int> itemTypes) &&
