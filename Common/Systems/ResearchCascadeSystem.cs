@@ -444,6 +444,8 @@ namespace YarnResearch.Common.Systems
 			if (Main.gameMenu)
 				return;
 
+			ScanForExternalResearch();
+
 			YarnResearchPlayer.AutoScan();
 
 			ReleaseDeferredNotifications();
@@ -564,12 +566,82 @@ namespace YarnResearch.Common.Systems
 
 			CreativeUI.GetSacrificeCount(type, out bool fullyResearched);
 			if (fullyResearched)
-			{
-				ResearchedTypes.Add(type);
-				NoteStationTile(type);
-			}
+				NoteExternalResearch(type);
 
 			return fullyResearched;
+		}
+
+		// A type vanilla already counts as researched that YARN never saw get researched. In multiplayer
+		// that means a teammate researched it: the shared unlock arrives as a NetCreativeUnlocksModule
+		// packet written straight into the sacrifice tracker, so CreativeUI.SacrificeItem - and with it
+		// ItemLoader.OnResearched, which every YARN trigger hangs off - is never involved.
+		//
+		// Only recorded here, never marked or cascaded: this is reached from IsResearched, which tooltip,
+		// crafting and consumption paths call mid-frame. ScanForExternalResearch drains the record into a
+		// real batch on the next UpdateUI tick.
+		private static void NoteExternalResearch(int type)
+		{
+			if (!ResearchedTypes.Contains(type))
+				ExternalUnlocks.Add(type);
+		}
+
+		// Externally-arrived unlocks awaiting their batch.
+		private static readonly HashSet<int> ExternalUnlocks = new();
+
+		// Cached so the per-item callback ForEachItemWithResearchProgress takes isn't allocated per scan.
+		private static readonly Action<int> NoteIfExternallyResearched = type =>
+		{
+			if (Main.LocalPlayerCreativeTracker.ItemSacrifices.IsFullyResearched(type))
+				NoteExternalResearch(type);
+		};
+
+		// Last LastEditId the tracker was scanned at - see ScanForExternalResearch.
+		private static int _lastTrackerEditId;
+
+		// Watches vanilla's own edit counter on the sacrifice tracker, which every edit bumps whatever its
+		// source, so an unlock that never went through ItemLoader.OnResearched still gets found. Watching
+		// the counter rather than hooking a specific tracker method keeps this independent of which one the
+		// net module happens to call. Called from UpdateUI so a teammate's unlock still lands while Journey
+		// autopause is holding a menu open.
+		private static void ScanForExternalResearch()
+		{
+			ItemsSacrificedUnlocksTracker tracker = Main.LocalPlayerCreativeTracker.ItemSacrifices;
+
+			if (tracker.LastEditId != _lastTrackerEditId)
+			{
+				_lastTrackerEditId = tracker.LastEditId;
+				tracker.ForEachItemWithResearchProgress(NoteIfExternallyResearched);
+			}
+
+			if (ExternalUnlocks.Count == 0)
+				return;
+
+			BeginBatch();
+			try
+			{
+				foreach (int type in ExternalUnlocks)
+				{
+					// Local research reaching the same type between the record and this drain wins - it
+					// already ran the triggers through OnResearched.
+					if (ResearchedTypes.Contains(type))
+						continue;
+
+					// No notification queue: an unlock arriving from a teammate is silent in vanilla, so it
+					// stays silent here too. Any further items this unlock cascades into are this client's
+					// own work and do notify.
+					MarkResearched(type, _batchQueue, notificationQueue: null);
+
+					// The other half of what GlobalItem.OnResearched would have done. Infinite buffs not
+					// turning themselves on is the symptom this whole path was found by.
+					if (ContentSamples.ItemsByType.TryGetValue(type, out Item item))
+						InfiniteBuffSystem.HandleItemResearched(item);
+				}
+			}
+			finally
+			{
+				ExternalUnlocks.Clear();
+				EndBatch();
+			}
 		}
 
 		private static void NoteStationTile(int type)
@@ -1304,6 +1376,11 @@ namespace YarnResearch.Common.Systems
 			ResearchedTypes.Clear();
 			ResearchedStationTiles.Clear();
 			ClearDeferredNotifications();
+
+			// The sweep below is this world's baseline, so nothing already in the tracker at join counts as
+			// externally arrived - only edits made from here on.
+			ExternalUnlocks.Clear();
+			_lastTrackerEditId = Main.LocalPlayerCreativeTracker.ItemSacrifices.LastEditId;
 
 			foreach (HashSet<int> origins in PendingOrigins)
 				origins.Clear();
