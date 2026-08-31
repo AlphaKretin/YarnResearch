@@ -235,14 +235,16 @@ namespace YarnResearch.Common.Systems
 					if (ItemID.Sets.IsFood[item.type])
 						HandleFoodResearched(buffType);
 					else if (!InfiniteBuffTypes.ContainsKey(buffType))
-						// Tipsy is vanilla's one mixed-effect buff registered as a debuff
-						// (Main.debuff[BuffID.Tipsy] = true), so right-click dismissal never works on it the
-						// way it does for other potion buffs - defaults OFF instead of the usual default-ON
-						// so it can't get stuck permanently active.
-						SetInfinite(Main.LocalPlayer, buffType, on: buffType != BuffID.Tipsy);
+						SetInfinite(Main.LocalPlayer, buffType, on: DefaultsOn(buffType));
 					break;
 			}
 		}
+
+		// Tipsy is vanilla's one mixed-effect buff registered as a debuff (Main.debuff[BuffID.Tipsy] = true),
+		// so right-click dismissal never works on it the way it does for other buffs - it defaults OFF
+		// instead of the usual default-ON so it can't get stuck permanently active. Ale and Sake are in
+		// ItemID.Sets.IsFood, so this has to be honoured on the food path too, not just the potion one.
+		private static bool DefaultsOn(int buffType) => buffType != BuffID.Tipsy;
 
 		// Well Fed comes in three escalating tiers that share no buffType - only the best researched tier
 		// should be held, so a better one turns the others off.
@@ -250,9 +252,9 @@ namespace YarnResearch.Common.Systems
 		{
 			int tierRank = Array.IndexOf(WellFedTierOrder, buffType);
 			if (tierRank < 0) {
-				// Non-Well-Fed food: same default-ON rule as potions.
+				// Non-Well-Fed food: same default rule as potions.
 				if (!InfiniteBuffTypes.ContainsKey(buffType))
-					SetInfinite(Main.LocalPlayer, buffType, on: true);
+					SetInfinite(Main.LocalPlayer, buffType, on: DefaultsOn(buffType));
 				return;
 			}
 
