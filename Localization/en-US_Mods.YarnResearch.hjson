@@ -87,6 +87,7 @@ ResearchCascadeSystem: {
 		Shimmer: Auto-Shimmered
 		Crate: Auto-Looted
 		Shop: Auto-Purchased
+		Team: Researched by teammates
 	}
 }
 
@@ -96,6 +97,7 @@ HeldItemsActionPower.HoverText: Research Held Items
 CascadeActionPower.HoverText: Research Craftable Recipes
 MiscCascadeActionPower.HoverText: Research Misc. Sources
 ShimmerActionPower.HoverText: Research Shimmered Items
+TeamCatchupPower.HoverText: Sync With Teammate Resarch
 
 FreeCraftingTogglePower: {
 	HoverText: Craft Anywhere Disabled

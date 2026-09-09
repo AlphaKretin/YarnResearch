@@ -158,4 +158,18 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 
 		public override void OnClosed() => _guard.Disarm();
 	}
+
+	public class TeamCatchupPower : AYarnActionPower
+	{
+		private static readonly LocalizedText HoverTextValue = ModContent.GetInstance<YarnResearch>().GetLocalization($"{nameof(TeamCatchupPower)}.HoverText");
+
+		protected override YarnIcon Icon => YarnIcons.TeamCatchup;
+		public override LocalizedText HoverText => HoverTextValue;
+
+		protected override void DoAction()
+		{
+			ResearchCascadeSystem.RunTeamCatchup();
+			SoundEngine.PlaySound(SoundID.MenuTick);
+		}
+	}
 }

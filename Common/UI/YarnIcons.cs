@@ -82,6 +82,7 @@ namespace YarnResearch.Common.UI
 		public static readonly YarnIcon ShimmerScan = YarnIcon.FromItem(ItemID.BottomlessShimmerBucket);
 		public static readonly YarnIcon MiscScan = YarnIcon.FromItem(ItemID.GoodieBag);
 		public static readonly YarnIcon FreeCrafting = YarnIcon.FromItem(ItemID.HandOfCreation);
+		public static readonly YarnIcon TeamCatchup = YarnIcon.FromItem(ItemID.TeamDye);
 
 		// The vanilla powers menu's own research-gear icon: frame index 1 of a 21-frame, 36x36-per-frame
 		// spritesheet, with a drop shadow already baked in.

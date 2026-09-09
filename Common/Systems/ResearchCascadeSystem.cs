@@ -36,6 +36,7 @@ namespace YarnResearch.Common.Systems
 			Shimmer,
 			Crate,
 			Shop,
+			Team
 		}
 
 		// Chat label per origin, keyed by enum member name so the two can't drift out of order.
@@ -768,6 +769,34 @@ namespace YarnResearch.Common.Systems
 		// is that hotkey's job, while this is the only way to clear a backlog of them at once.
 		public static void ManualMiscCascadeScan() =>
 			RunCatchupScan(Mechanism.Misc | Mechanism.Crate, ProcessMiscCascadesAndCrates, "manual misc. cascade scan");
+
+		public static void RunTeamCatchup()
+		{
+			if (Main.netMode != NetmodeID.MultiplayerClient)
+				return;
+
+			int team = Main.LocalPlayer.team;
+			if (team == 0)
+				return;
+
+			for (int i = 0; i < Main.maxPlayers; i++)
+			{
+				if (i == Main.myPlayer || !Main.player[i].active || Main.player[i].team != team)
+					continue;
+
+				ItemsSacrificedUnlocksTracker tracker = Main.player[i].creativeTracker.ItemSacrifices;
+
+				tracker.ForEachItemWithResearchProgress(type =>
+				{
+					if (Main.LocalPlayerCreativeTracker.ItemSacrifices.IsFullyResearched(type))
+						return;
+
+					ResearchWithOrigin(type, ResearchOrigin.Team);
+				});
+			}
+
+
+		}
 
 		private static void ProcessMiscCascadesAndCrates(int type)
 		{
