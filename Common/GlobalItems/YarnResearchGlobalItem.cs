@@ -35,7 +35,11 @@ namespace YarnResearch.Common.GlobalItems
 		public override void OnCreated(Item item, ItemCreationContext context)
 		{
 			if (context is not JourneyDuplicationItemCreationContext)
+			{
+				// call the base trigger to ensure normal behaviour like prefixes on craft work
+				base.OnCreated(item, context);
 				return;
+			}
 
 			// Preserve armed/default prefixes across a Goblin Tinkerer death rather than clearing them -
 			// just don't apply them while he's gone, matching vanilla's own reroll gating.
