@@ -744,6 +744,7 @@ namespace YarnResearch.Common.Systems
 				return false;
 
 			_shimmerDiscovered = true;
+			YarnNetwork.SendShimmerDiscovered();
 			return true;
 		}
 

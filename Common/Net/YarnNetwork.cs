@@ -13,6 +13,7 @@ namespace YarnResearch.Common.Net
 	{
 		AutoResearchNotification,
 		PartialResearch,
+		ShimmerDiscovered
 	}
 
 	// Every YARN packet is [message type][sender player index][payload length][payload], so the server can
@@ -46,6 +47,9 @@ namespace YarnResearch.Common.Net
 					break;
 				case YarnMessageType.PartialResearch:
 					ReceivePartialResearch(payloadReader);
+					break;
+				case YarnMessageType.ShimmerDiscovered:
+					ReceiveShimmerDiscovered();
 					break;
 			}
 		}
@@ -177,5 +181,19 @@ namespace YarnResearch.Common.Net
 			}
 		}
 
+		public static void SendShimmerDiscovered()
+		{
+			if (Main.netMode != NetmodeID.MultiplayerClient)
+				return;
+
+			// no payload, pure notification
+			ModPacket packet = NewPacket(YarnMessageType.ShimmerDiscovered, Main.myPlayer, 0);
+			packet.Send();
+		}
+
+		private static void ReceiveShimmerDiscovered()
+		{
+			ResearchCascadeSystem.MarkShimmerDiscovered();
+		}
 	}
 }
