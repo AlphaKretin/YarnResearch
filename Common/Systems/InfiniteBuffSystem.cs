@@ -413,8 +413,8 @@ namespace YarnResearch.Common.Systems
 
 		public override void SaveWorldData(TagCompound tag)
 		{
-			int[] onTypes = InfiniteBuffTypes.Where(p => p.Value).Select(p => p.Key).ToArray();
-			int[] offTypes = InfiniteBuffTypes.Where(p => !p.Value).Select(p => p.Key).ToArray();
+			int[] onTypes = [.. InfiniteBuffTypes.Where(p => p.Value).Select(p => p.Key)];
+			int[] offTypes = [.. InfiniteBuffTypes.Where(p => !p.Value).Select(p => p.Key)];
 
 			if (onTypes.Length > 0)
 				tag["onTypes"] = onTypes;

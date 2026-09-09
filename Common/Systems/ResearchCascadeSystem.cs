@@ -41,7 +41,7 @@ namespace YarnResearch.Common.Systems
 
 		// Chat label per origin, keyed by enum member name so the two can't drift out of order.
 		private static readonly LocalizedText[] NotificationLabels =
-			Enum.GetValues<ResearchOrigin>().Select(origin => Localization($"Origins.{origin}")).ToArray();
+			[.. Enum.GetValues<ResearchOrigin>().Select(origin => Localization($"Origins.{origin}"))];
 
 		private static readonly LocalizedText NotificationText = Localization("Notification");
 
@@ -68,11 +68,11 @@ namespace YarnResearch.Common.Systems
 		// Types currently mid-ResearchItem for a given mechanism, so the synchronous re-entry into
 		// HandleResearched can tell which mechanism unlocked them. Indexed by ResearchOrigin.
 		private static readonly HashSet<int>[] PendingOrigins =
-			Enum.GetValues<ResearchOrigin>().Select(_ => new HashSet<int>()).ToArray();
+			[.. Enum.GetValues<ResearchOrigin>().Select(_ => new HashSet<int>())];
 
 		// Unlocks awaiting their batched chat notification, indexed the same way.
 		private static readonly Queue<int>[] PendingNotifications =
-			Enum.GetValues<ResearchOrigin>().Select(_ => new Queue<int>()).ToArray();
+			[.. Enum.GetValues<ResearchOrigin>().Select(_ => new Queue<int>())];
 
 		// Proxy signal for any gating Condition (on a recipe or an NPC shop entry) that the player can
 		// trivially force or recreate on demand via some researchable item, standing in for the live
@@ -814,7 +814,7 @@ namespace YarnResearch.Common.Systems
 
 		private static void RunCatchupScan(Mechanism mechanism, Action<int> processType, string logLabel)
 		{
-			int[] snapshot = ResearchedTypes.ToArray();
+			int[] snapshot = [.. ResearchedTypes];
 			var stopwatch = Stopwatch.StartNew();
 
 			BeginBatch();
@@ -895,7 +895,7 @@ namespace YarnResearch.Common.Systems
 			using var _ = CascadeProfile.Time(CascadeProfile.Phase.TorchVariantBuild);
 
 			Player player = Main.LocalPlayer;
-			bool[] realZones = BiomeTorchZones.Select(zone => zone.Get(player)).ToArray();
+			bool[] realZones = [.. BiomeTorchZones.Select(zone => zone.Get(player))];
 			bool realUsingBiomeTorches = player.UsingBiomeTorches;
 			var variants = new HashSet<int>();
 
@@ -921,7 +921,7 @@ namespace YarnResearch.Common.Systems
 				player.UsingBiomeTorches = realUsingBiomeTorches;
 			}
 
-			int[] result = variants.ToArray();
+			int[] result = [.. variants];
 			BiomeTorchVariants[type] = result;
 
 			ModContent.GetInstance<YarnResearch>().Logger.Info(
@@ -1038,7 +1038,7 @@ namespace YarnResearch.Common.Systems
 				Main.rand = realRand;
 			}
 
-			int[] result = outputs.ToArray();
+			int[] result = [.. outputs];
 			ExtractinatorOutputs[(extractMode, blockType)] = result;
 
 			ModContent.GetInstance<YarnResearch>().Logger.Info(
@@ -1240,7 +1240,7 @@ namespace YarnResearch.Common.Systems
 
 		private static bool IsPylonItem(int type)
 		{
-			_pylonItemTypes ??= NPCShopDatabase.GetPylonEntries().Select(e => e.Item.type).ToHashSet();
+			_pylonItemTypes ??= [.. NPCShopDatabase.GetPylonEntries().Select(e => e.Item.type)];
 			return _pylonItemTypes.Contains(type);
 		}
 

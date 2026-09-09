@@ -156,12 +156,11 @@ namespace YarnResearch.Common.Systems
 		// instead of silently behaving inconsistently.
 		private static void LogUnfakeableProxiedConditions()
 		{
-			List<string> gaps = ResearchCascadeSystem.RecipeGatingConditions
+			List<string> gaps = [.. ResearchCascadeSystem.RecipeGatingConditions
 				.Where(condition => ResearchCascadeSystem.IsConditionProxied(condition) &&
 					!ProximityConditionFakes.ContainsKey(condition))
 				.Select(condition => condition.Description.Value)
-				.Distinct()
-				.ToList();
+				.Distinct()];
 
 			if (gaps.Count > 0)
 			{
