@@ -9,47 +9,52 @@ Configs: {
 
 		AutoResearchHeldItems: {
 			Label: Auto-Research Held Items
-			Tooltip: ""
+			Tooltip: Automatically research items without sacrificing if you hold enough in your inventory
 		}
 
 		AutoResearchCraftable: {
 			Label: Auto-Research Craftable Items
-			Tooltip: ""
+			Tooltip: Automatically research items where you've researched all crafting requirements
 		}
 
 		AutoResearchShimmerOutputs: {
-			Tooltip: ""
+			Tooltip: Automatically research items you can get from shimmering researched items, as long as you've discovered the Aether
 			Label: Auto-Research Shimmer Outputs
 		}
 
 		AutoResearchCrateContents: {
-			Tooltip: ""
+			Tooltip: Automatically research all possible contents of any researched grab bags (e.g. fishing crates, boss loot bags)
 			Label: Auto-Research Grab Bag Contents
 		}
 
 		AutoResearchMiscCascades: {
-			Tooltip: ""
+			Tooltip: Automatically research miscellaneous shortcuts like torch god conversions and extractinator outputs
 			Label: Auto-Research Misc. Sources
 		}
 
 		AutoResearchShopStock: {
-			Tooltip: ""
+			Tooltip: Automatically research the affordable stock of a shop you open
 			Label: Auto-Research Shop Stock
+		}
+
+		SharePartialResearch: {
+			Label: Share Partial Research
+			Tooltip: In multiplayer, share partial research progress with your team instead of only completed research
 		}
 
 		InfiniteResearchedConsumables: {
 			Label: Researched Stacks Don't Decrease
-			Tooltip: ""
+			Tooltip: A stack of a researched item won't go down when used
 		}
 
 		InfiniteResearchedBuffs: {
-			Tooltip: ""
+			Tooltip: A buff from a researched potion/food/etc can be toggled to remain active infinitely
 			Label: Researched Buffs Don't Expire
 		}
 
 		ShowAutoResearchNotifications: {
 			Label: Show Notifications in Chat
-			Tooltip: ""
+			Tooltip: Show a summary in chat when items are automatically researched
 		}
 	}
 }

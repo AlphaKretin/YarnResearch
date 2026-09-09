@@ -26,6 +26,9 @@ namespace YarnResearch.Common.Configs
 		[DefaultValue(true)]
 		public bool AutoResearchMiscCascades;
 
+		[DefaultValue(true)]
+		public bool SharePartialResearch;
+
 		[Header("Options")]
 		[DefaultValue(true)]
 		public bool InfiniteResearchedConsumables;

@@ -10,6 +10,7 @@ namespace YarnResearch.Common.Net
 	public enum YarnMessageType : byte
 	{
 		AutoResearchNotification,
+		PartialResearch,
 	}
 
 	// Every YARN packet is [message type][sender player index][payload length][payload], so the server can
@@ -127,5 +128,32 @@ namespace YarnResearch.Common.Net
 
 			ResearchCascadeSystem.AnnounceTeammateResearch(sender, origin, types);
 		}
+
+		public static void SendPartialResearch(int type, int count)
+		{
+			if (Main.netMode != NetmodeID.MultiplayerClient)
+				return;
+
+			var payload = new MemoryStream();
+			using (var writer = new BinaryWriter(payload))
+			{
+				writer.Write(type);
+				writer.Write(count);
+			}
+
+			byte[] bytes = payload.ToArray();
+			ModPacket packet = NewPacket(YarnMessageType.PartialResearch, Main.myPlayer, bytes.Length);
+			packet.Write(bytes);
+			packet.Send();
+		}
+
+		private static void ReceivePartialResearch(BinaryReader reader, int sender)
+		{
+			int type = reader.ReadInt32();
+			int count = reader.ReadInt32();
+
+			MultiplayerSyncSystem.ReceivePartialResearch(type, count);
+		}
+
 	}
 }

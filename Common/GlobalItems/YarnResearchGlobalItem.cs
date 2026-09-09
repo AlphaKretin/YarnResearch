@@ -78,6 +78,10 @@ namespace YarnResearch.Common.GlobalItems
 				ResearchCascadeSystem.HandleResearched(item.type);
 				InfiniteBuffSystem.HandleItemResearched(item);
 			}
+			else
+			{
+				MultiplayerSyncSystem.SharePartialResearch(item);
+			}
 		}
 
 		public override void ModifyTooltips(Item item, List<TooltipLine> tooltips)
