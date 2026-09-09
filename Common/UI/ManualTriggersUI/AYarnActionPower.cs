@@ -103,11 +103,13 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 			// vanilla button uses those, and doing so here made the icon translucent once the real
 			// override-opacity fields were copied on, since the button's own fade state bleeds into its
 			// built-in icon draw.
-			IconElement = new ItemIconButton(Icon) {
+			IconElement = new ItemIconButton(Icon)
+			{
 				IgnoresMouseInteraction = true,
 			};
 
-			if (Icon.Frame is Rectangle frame) {
+			if (Icon.Frame is Rectangle frame)
+			{
 				// The real Open Research Menu button (same Infinite_Powers gear icon, same frame) draws its
 				// icon at native size flush against the button's bottom-right corner rather than scaling it
 				// to fill: a 36x36 icon inset exactly 4px from a 40x40 button's top-left.
@@ -116,7 +118,8 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 				IconElement.Width.Set(frame.Width, 0f);
 				IconElement.Height.Set(frame.Height, 0f);
 			}
-			else {
+			else
+			{
 				IconElement.Width.Set(0f, 1f);
 				IconElement.Height.Set(0f, 1f);
 			}

@@ -56,8 +56,10 @@ namespace YarnResearch.Common.Systems
 			_uiState.Activate();
 
 			// Same duplication-panel-only context InfiniteBuffSystem scopes its own icon tint to.
-			_drawItemIconHook = (On_ItemSlot.orig_DrawItemIcon orig, Item item, int context, SpriteBatch spriteBatch, Vector2 screenPositionForItemCenter, float scale, float sizeLimit, Color environmentColor, float itemFade, bool flip) => {
-				if (context == ItemSlot.Context.CreativeInfinite) {
+			_drawItemIconHook = (On_ItemSlot.orig_DrawItemIcon orig, Item item, int context, SpriteBatch spriteBatch, Vector2 screenPositionForItemCenter, float scale, float sizeLimit, Color environmentColor, float itemFade, bool flip) =>
+			{
+				if (context == ItemSlot.Context.CreativeInfinite)
+				{
 					DuplicationHoverSystem.MarkGridDrawn();
 
 					float iconSize = sizeLimit * scale;
@@ -69,11 +71,13 @@ namespace YarnResearch.Common.Systems
 					// vanilla actually hover-tests against, so widen it by the same factor the tint
 					// background uses; a narrower box than vanilla's real hover area lets the unprefixed
 					// tooltip peek through near the tile's edges.
-					if (!item.IsAir && IsMouseOverIcon(screenPositionForItemCenter, iconSize * SlotTint.BackgroundPadding)) {
+					if (!item.IsAir && IsMouseOverIcon(screenPositionForItemCenter, iconSize * SlotTint.BackgroundPadding))
+					{
 						DuplicationHoverSystem.MarkHoveringSlot();
 
 						YarnResearchPlayer player = Main.LocalPlayer.GetModPlayer<YarnResearchPlayer>();
-						if (player.TryGetDefaultPrefix(item, out int armedPrefix)) {
+						if (player.TryGetDefaultPrefix(item, out int armedPrefix))
+						{
 							_previewItemType = item.type;
 							_previewPrefixId = armedPrefix;
 							_previewIsPopupRow = false;
@@ -94,7 +98,8 @@ namespace YarnResearch.Common.Systems
 			_userInterface = null;
 			_uiState = null;
 
-			if (_drawItemIconHook != null) {
+			if (_drawItemIconHook != null)
+			{
 				On_ItemSlot.DrawItemIcon -= _drawItemIconHook;
 				_drawItemIconHook = null;
 			}
@@ -157,7 +162,8 @@ namespace YarnResearch.Common.Systems
 			_previewItemType = -1;
 			_previewIsPopupRow = false;
 
-			if (_userInterface.CurrentState != null) {
+			if (_userInterface.CurrentState != null)
+			{
 				_userInterface.Update(gameTime);
 
 				// Gated on the grid specifically, not on the power menu being open at all: switching to
@@ -178,7 +184,8 @@ namespace YarnResearch.Common.Systems
 
 			// Pressing the hotkey again on the item the picker is already open for closes it. Pressing it on
 			// a different item re-targets instead, which is what _activePickerItemType's highlight is for.
-			if (hoverItem.type == _activePickerItemType) {
+			if (hoverItem.type == _activePickerItemType)
+			{
 				ClosePicker();
 				return;
 			}
@@ -206,7 +213,8 @@ namespace YarnResearch.Common.Systems
 
 			layers.Insert(index, new LegacyGameInterfaceLayer(
 				"YarnResearch: Prefix Picker",
-				() => {
+				() =>
+				{
 					// Draw the popup first, then apply the preview - not the other way around. The popup's
 					// own rows set the preview from DrawSelf (see PrefixEntryElement), and _previewItemType
 					// gets reset once per tick at the top of UpdateUI; applying before drawing would mean the

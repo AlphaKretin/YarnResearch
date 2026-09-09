@@ -62,7 +62,7 @@ namespace YarnResearch.Common.Systems
 			Misc = 8,
 		}
 
-		private static readonly HashSet<int> ResearchedTypes = new();
+		private static readonly HashSet<int> ResearchedTypes = [];
 
 		// Types currently mid-ResearchItem for a given mechanism, so the synchronous re-entry into
 		// HandleResearched can tell which mechanism unlocked them. Indexed by ResearchOrigin.
@@ -87,43 +87,43 @@ namespace YarnResearch.Common.Systems
 		// !Main.remixWorld || (Main.tenthAnniversaryWorld && !Main.getGoodWorld), despite the name).
 		private static readonly Dictionary<Condition, HashSet<int>> ConditionProxyItemTypes = new()
 		{
-			[Condition.InGraveyard] = new HashSet<int> {
+			[Condition.InGraveyard] = [
 				ItemID.Tombstone, ItemID.GraveMarker, ItemID.CrossGraveMarker,
 				ItemID.Headstone, ItemID.Gravestone, ItemID.Obelisk,
 				ItemID.RichGravestone1, ItemID.RichGravestone2, ItemID.RichGravestone3,
 				ItemID.RichGravestone4, ItemID.RichGravestone5,
-			},
-			[Condition.InSnow] = new HashSet<int> { ItemID.SnowBlock, ItemID.IceBlock },
-			[Condition.NearWater] = new HashSet<int> { ItemID.WaterBucket, ItemID.BottomlessBucket },
-			[Condition.NearLava] = new HashSet<int> { ItemID.LavaBucket, ItemID.BottomlessLavaBucket },
-			[Condition.NearHoney] = new HashSet<int> { ItemID.HoneyBucket, ItemID.BottomlessHoneyBucket },
-			[Condition.InDesert] = new HashSet<int> { ItemID.SandBlock },
-			[Condition.InUnderworld] = new HashSet<int> { ItemID.AshBlock, ItemID.Hellstone },
-			[Condition.InJungle] = new HashSet<int> { ItemID.JungleGrassSeeds },
-			[Condition.InHallow] = new HashSet<int> { ItemID.PearlstoneBlock, ItemID.PinkIceBlock },
-			[Condition.InGlowshroom] = new HashSet<int> { ItemID.MushroomGrassSeeds },
+			],
+			[Condition.InSnow] = [ItemID.SnowBlock, ItemID.IceBlock],
+			[Condition.NearWater] = [ItemID.WaterBucket, ItemID.BottomlessBucket],
+			[Condition.NearLava] = [ItemID.LavaBucket, ItemID.BottomlessLavaBucket],
+			[Condition.NearHoney] = [ItemID.HoneyBucket, ItemID.BottomlessHoneyBucket],
+			[Condition.InDesert] = [ItemID.SandBlock],
+			[Condition.InUnderworld] = [ItemID.AshBlock, ItemID.Hellstone],
+			[Condition.InJungle] = [ItemID.JungleGrassSeeds],
+			[Condition.InHallow] = [ItemID.PearlstoneBlock, ItemID.PinkIceBlock],
+			[Condition.InGlowshroom] = [ItemID.MushroomGrassSeeds],
 			// Sundial/Moondial force-advance to the next day/night, cycling through every time-of-day and
 			// moon-phase gate eventually. Moondial is a rarer, later-game alternative, but either one
 			// satisfies the same set of conditions.
-			[Condition.TimeDay] = new HashSet<int> { ItemID.Sundial, ItemID.Moondial },
-			[Condition.TimeNight] = new HashSet<int> { ItemID.Sundial, ItemID.Moondial },
-			[Condition.MoonPhasesQuarter0] = new HashSet<int> { ItemID.Sundial, ItemID.Moondial },
-			[Condition.MoonPhasesQuarter1] = new HashSet<int> { ItemID.Sundial, ItemID.Moondial },
-			[Condition.MoonPhasesQuarter2] = new HashSet<int> { ItemID.Sundial, ItemID.Moondial },
-			[Condition.MoonPhasesQuarter3] = new HashSet<int> { ItemID.Sundial, ItemID.Moondial },
+			[Condition.TimeDay] = [ItemID.Sundial, ItemID.Moondial],
+			[Condition.TimeNight] = [ItemID.Sundial, ItemID.Moondial],
+			[Condition.MoonPhasesQuarter0] = [ItemID.Sundial, ItemID.Moondial],
+			[Condition.MoonPhasesQuarter1] = [ItemID.Sundial, ItemID.Moondial],
+			[Condition.MoonPhasesQuarter2] = [ItemID.Sundial, ItemID.Moondial],
+			[Condition.MoonPhasesQuarter3] = [ItemID.Sundial, ItemID.Moondial],
 			// Bloody Tear summons a Blood Moon on demand.
-			[Condition.BloodMoon] = new HashSet<int> { ItemID.BloodMoonStarter },
-			[Condition.BloodMoonOrHardmode] = new HashSet<int> { ItemID.BloodMoonStarter },
+			[Condition.BloodMoon] = [ItemID.BloodMoonStarter],
+			[Condition.BloodMoonOrHardmode] = [ItemID.BloodMoonStarter],
 			// Solar Tablet summons a Solar Eclipse on demand; EclipseOrBloodMoon is satisfied by either.
-			[Condition.Eclipse] = new HashSet<int> { ItemID.SolarTablet },
-			[Condition.EclipseOrBloodMoon] = new HashSet<int> { ItemID.SolarTablet, ItemID.BloodMoonStarter },
-			[Condition.NightOrEclipse] = new HashSet<int> { ItemID.SolarTablet },
+			[Condition.Eclipse] = [ItemID.SolarTablet],
+			[Condition.EclipseOrBloodMoon] = [ItemID.SolarTablet, ItemID.BloodMoonStarter],
+			[Condition.NightOrEclipse] = [ItemID.SolarTablet],
 			// Contrived, but deliberate: reaching wave 15 of the Pumpkin/Frost Moon events (summonable
 			// anytime post-Hardmode via these items) actually flips Main.halloween/Main.xMas true until the
 			// real season starts again, so these items are a genuine (if late-game) way to satisfy an
 			// otherwise-uncontrollable real-calendar-date gate.
-			[Condition.Halloween] = new HashSet<int> { ItemID.PumpkinMoonMedallion },
-			[Condition.Christmas] = new HashSet<int> { ItemID.NaughtyPresent },
+			[Condition.Halloween] = [ItemID.PumpkinMoonMedallion],
+			[Condition.Christmas] = [ItemID.NaughtyPresent],
 		};
 
 		// Reverse of ConditionProxyItemTypes: proxy item type -> Conditions it satisfies. Built once since
@@ -150,23 +150,23 @@ namespace YarnResearch.Common.Systems
 		// IsMet() turning true (CheckLiveConditionEdges). The latter applies even to a proxied Condition,
 		// since a player standing in the real thing should work exactly as it does in vanilla, with no proxy
 		// research required first.
-		private static readonly Dictionary<Condition, List<int>> RecipesRequiringCondition = new();
+		private static readonly Dictionary<Condition, List<int>> RecipesRequiringCondition = [];
 
 		// Last-observed IsMet() per Condition in RecipesRequiringCondition, so CheckLiveConditionEdges can
 		// detect a false->true transition rather than re-triggering every tick the condition happens to be
 		// true.
-		private static readonly Dictionary<Condition, bool> LiveConditionWasMet = new();
+		private static readonly Dictionary<Condition, bool> LiveConditionWasMet = [];
 
 		// Station tiles the player was standing next to on the previous tick, so walking up to one triggers
 		// the same false->true recheck a Condition does. Purely live: this records nothing about having been
 		// there, so walking away takes the station's recipes back with it, exactly as vanilla crafting does.
-		private static readonly HashSet<int> LiveAdjacentStationTiles = new();
+		private static readonly HashSet<int> LiveAdjacentStationTiles = [];
 
 		// Recipe indices gated by Recipe.needTorchGodsFavor - tracked separately from
 		// RecipesRequiringCondition since this gate isn't a Condition at all (see TorchGodsFavorSatisfied).
 		// Watched the same way: a false->true transition on Player.unlockedBiomeTorches rechecks every
 		// recipe here.
-		private static readonly List<int> RecipesRequiringTorchGodsFavor = new();
+		private static readonly List<int> RecipesRequiringTorchGodsFavor = [];
 		private static bool _torchGodsFavorWasUnlocked;
 
 		// Recipe.needTorchGodsFavor is a legacy internal bool that tModLoader never converts into a
@@ -197,7 +197,7 @@ namespace YarnResearch.Common.Systems
 
 		// Convertible torch/campfire type -> every biome variant it can become. Cached because the answer
 		// is fixed game data, while working it out costs one vanilla call per biome.
-		private static readonly Dictionary<int, int[]> BiomeTorchVariants = new();
+		private static readonly Dictionary<int, int[]> BiomeTorchVariants = [];
 
 		// Every tile that functions as an Extractinator, in the form RollExtractinatorDrop takes as its
 		// extractinatorBlockType. The two roll different tables, so each is enumerated separately.
@@ -206,7 +206,7 @@ namespace YarnResearch.Common.Systems
 		// (extract mode, extractinator tile) -> every item that pairing can yield. Cached for the same
 		// reason as BiomeTorchVariants, but far more so: working an entry out costs ExtractinatorRollSamples
 		// rolls.
-		private static readonly Dictionary<(int Mode, int BlockType), int[]> ExtractinatorOutputs = new();
+		private static readonly Dictionary<(int Mode, int BlockType), int[]> ExtractinatorOutputs = [];
 
 		// How many times each pairing is rolled to recover its drop table. The rarest researchable vanilla
 		// result is the Amber Mosquito at 1/10,000, which this leaves a ~1e-11 chance of missing.
@@ -216,26 +216,26 @@ namespace YarnResearch.Common.Systems
 		// run to run would make a missed drop impossible to reproduce.
 		private const int ExtractinatorSampleSeed = 20260828;
 
-		private static readonly Dictionary<int, List<int>> RecipesConsumingItem = new();
-		private static readonly Dictionary<int, List<int>> StationItemTypesByTile = new();
+		private static readonly Dictionary<int, List<int>> RecipesConsumingItem = [];
+		private static readonly Dictionary<int, List<int>> StationItemTypesByTile = [];
 
 		// Every tile placed by an already-researched item, maintained incrementally as items are researched
 		// rather than derived from ResearchedTypes on demand - FreeCraftingSystem reads it from inside
 		// Recipe.FindRecipes, which runs on every inventory change.
-		private static readonly HashSet<int> ResearchedStationTiles = new();
+		private static readonly HashSet<int> ResearchedStationTiles = [];
 
 		// Reverse of the above two: recipe.requiredTile -> recipe indices needing that tile as a station.
 		// Needed because a recipe otherwise only gets rechecked when one of its *ingredients* is newly
 		// researched (via RecipesConsumingItem): a station becoming available on its own triggered nothing,
 		// so a recipe whose ingredients were already satisfied while its station was still unknown stayed
 		// unchecked for the rest of that cascade, and only got picked up by a later full rescan.
-		private static readonly Dictionary<int, List<int>> RecipesRequiringTile = new();
+		private static readonly Dictionary<int, List<int>> RecipesRequiringTile = [];
 
 		// Direct Shimmer transmute table (ItemID.Sets.ShimmerTransformToItem), input type -> output type.
 		// Built once since this is static game data. Decraft outputs are looked up dynamically instead (see
 		// ProcessShimmerOutputs), since RecipeLoader.DecraftAvailable depends on live Conditions (biome,
 		// world type, etc.) that can change without a recipe-data reload.
-		private static readonly Dictionary<int, int> ShimmerOutputsByInput = new();
+		private static readonly Dictionary<int, int> ShimmerOutputsByInput = [];
 
 		// Persisted per-world: once true, Shimmer cascade edges stay open for the rest of the world's life.
 		private static bool _shimmerDiscovered;
@@ -424,7 +424,7 @@ namespace YarnResearch.Common.Systems
 		{
 			if (!index.TryGetValue(key, out List<TValue> values))
 			{
-				values = new List<TValue>();
+				values = [];
 				index[key] = values;
 			}
 
@@ -501,13 +501,13 @@ namespace YarnResearch.Common.Systems
 					LiveConditionWasMet[condition] = isMet;
 
 					if (isMet && !wasMet)
-						(recipesToRecheck ??= new List<int>()).AddRange(recipeIndices);
+						(recipesToRecheck ??= []).AddRange(recipeIndices);
 				}
 
 				CheckLiveStationEdges(ref recipesToRecheck);
 
 				if (torchGodsFavorJustUnlocked)
-					(recipesToRecheck ??= new List<int>()).AddRange(RecipesRequiringTorchGodsFavor);
+					(recipesToRecheck ??= []).AddRange(RecipesRequiringTorchGodsFavor);
 			}
 
 			// Torches researched before the Favor was unlocked were never convertible at the time, so the
@@ -554,7 +554,7 @@ namespace YarnResearch.Common.Systems
 				}
 
 				if (LiveAdjacentStationTiles.Add(tile))
-					(recipesToRecheck ??= new List<int>()).AddRange(recipeIndices);
+					(recipesToRecheck ??= []).AddRange(recipeIndices);
 			}
 		}
 
@@ -591,13 +591,13 @@ namespace YarnResearch.Common.Systems
 		}
 
 		// Externally-arrived unlocks awaiting their batch.
-		private static readonly HashSet<int> ExternalUnlocks = new();
+		private static readonly HashSet<int> ExternalUnlocks = [];
 
 		// Every type that has ever arrived externally this world, kept for the world's life rather than
 		// consumed with ExternalUnlocks. AnnounceTeammateResearch filters a teammate's mirrored notification
 		// against it, so the mirror only ever covers items that genuinely came over the wire - never ones
 		// this client's own YARN derived and already announced under its own label.
-		private static readonly HashSet<int> ExternallyResearchedTypes = new();
+		private static readonly HashSet<int> ExternallyResearchedTypes = [];
 
 		// Cached so the per-item callback ForEachItemWithResearchProgress takes isn't allocated per scan.
 		private static readonly Action<int> NoteIfExternallyResearched = type =>
@@ -1649,11 +1649,11 @@ namespace YarnResearch.Common.Systems
 		// how many requests are in flight bounds how much completion work can land on any one frame while
 		// still giving the decode enough parallelism to be fast. Only vanilla item textures are ever cold -
 		// per Main.LoadItem's own documentation, modded item textures all load during mod loading.
-		private static readonly List<string> DeferredMessages = new();
-		private static readonly List<int> DeferredTextureTypes = new();
+		private static readonly List<string> DeferredMessages = [];
+		private static readonly List<int> DeferredTextureTypes = [];
 
 		// Types tagged by the current flush, reused across origins to keep this off the allocation path.
-		private static readonly List<int> TaggedTypes = new();
+		private static readonly List<int> TaggedTypes = [];
 
 		private static int _deferredTicksWaited;
 		private static int _deferredColdCount;

@@ -25,7 +25,7 @@ namespace YarnResearch.Common.UI.PrefixPickerUI
 			panel.VAlign = 0.6f;
 			Append(panel);
 
-			_list = new UIList();
+			_list = [];
 			_list.Width.Set(-24f, 1f);
 			_list.Height.Set(0f, 1f);
 			_list.ListPadding = 4f;

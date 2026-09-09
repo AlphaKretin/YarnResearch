@@ -30,7 +30,8 @@ namespace YarnResearch.Common.UI.PrefixPickerUI
 			// Every category the item matches contributes its prefixes to one flat list. Which category a
 			// given prefix came from doesn't matter to the caller - a default is keyed on the item's whole
 			// PrefixGroup, not on any single category (see PrefixGroup).
-			foreach (PrefixCategory category in item.GetPrefixCategories()) {
+			foreach (PrefixCategory category in item.GetPrefixCategories())
+			{
 				foreach (int prefixId in Item.GetVanillaPrefixes(category))
 					TryAdd(item, prefixId, results, seen);
 

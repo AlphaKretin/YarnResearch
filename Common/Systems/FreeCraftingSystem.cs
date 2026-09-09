@@ -29,7 +29,8 @@ namespace YarnResearch.Common.Systems
 		// property rather than a place, so it keeps blocking its recipes. Every other Condition with a proxy
 		// registered in ResearchCascadeSystem exists for NPC shop entries and never gates a vanilla recipe -
 		// LogUnfakeableProxiedConditions reports any that turn out to.
-		private static readonly Dictionary<Condition, ProximityFlag> ProximityConditionFakes = new() {
+		private static readonly Dictionary<Condition, ProximityFlag> ProximityConditionFakes = new()
+		{
 			[Condition.NearWater] = new(p => p.adjWaterSource, (p, on) => p.adjWaterSource = on),
 			[Condition.NearLava] = new(p => p.adjLava, (p, on) => p.adjLava = on),
 			[Condition.NearHoney] = new(p => p.adjHoney, (p, on) => p.adjHoney = on),
@@ -40,8 +41,8 @@ namespace YarnResearch.Common.Systems
 		// What this call actually overwrote, so the restore only touches those rather than stomping the
 		// tiles/biomes the player is genuinely in. Reused across calls (FindRecipes is single-threaded
 		// UI-path work) to keep allocations off a method that runs on every inventory change.
-		private static readonly List<int> FlippedTiles = new();
-		private static readonly List<(ProximityFlag Flag, bool Original)> FlippedFlags = new();
+		private static readonly List<int> FlippedTiles = [];
+		private static readonly List<(ProximityFlag Flag, bool Original)> FlippedFlags = [];
 
 		public override void Load()
 		{
@@ -58,8 +59,10 @@ namespace YarnResearch.Common.Systems
 			LogUnfakeableProxiedConditions();
 		}
 
-		public static bool Enabled {
-			get {
+		public static bool Enabled
+		{
+			get
+			{
 				if (Main.gameMenu || Main.LocalPlayer == null || !Main.LocalPlayer.active)
 					return false;
 
@@ -79,7 +82,8 @@ namespace YarnResearch.Common.Systems
 
 		private static void ApplyFreeCrafting(On_Recipe.orig_UpdateRecipeList orig)
 		{
-			if (!Enabled) {
+			if (!Enabled)
+			{
 				orig();
 				return;
 			}
@@ -88,11 +92,13 @@ namespace YarnResearch.Common.Systems
 			FlippedTiles.Clear();
 			FlippedFlags.Clear();
 
-			try {
+			try
+			{
 				foreach (int tile in ResearchCascadeSystem.ResearchedStations)
 					FakeAdjacentTile(player, tile);
 
-				foreach ((Condition condition, ProximityFlag flag) in ProximityConditionFakes) {
+				foreach ((Condition condition, ProximityFlag flag) in ProximityConditionFakes)
+				{
 					if (!ResearchCascadeSystem.ConditionProxyResearched(condition))
 						continue;
 
@@ -102,7 +108,8 @@ namespace YarnResearch.Common.Systems
 
 				orig();
 			}
-			finally {
+			finally
+			{
 				foreach (int tile in FlippedTiles)
 					player.adjTile[tile] = false;
 
@@ -119,7 +126,8 @@ namespace YarnResearch.Common.Systems
 			if (tile < 0 || tile >= player.adjTile.Length)
 				return;
 
-			if (!player.adjTile[tile]) {
+			if (!player.adjTile[tile])
+			{
 				player.adjTile[tile] = true;
 				FlippedTiles.Add(tile);
 			}
@@ -131,8 +139,10 @@ namespace YarnResearch.Common.Systems
 			if (countsAs == null)
 				return;
 
-			foreach (int alias in countsAs) {
-				if (alias >= 0 && alias < player.adjTile.Length && !player.adjTile[alias]) {
+			foreach (int alias in countsAs)
+			{
+				if (alias >= 0 && alias < player.adjTile.Length && !player.adjTile[alias])
+				{
 					player.adjTile[alias] = true;
 					FlippedTiles.Add(alias);
 				}
@@ -153,7 +163,8 @@ namespace YarnResearch.Common.Systems
 				.Distinct()
 				.ToList();
 
-			if (gaps.Count > 0) {
+			if (gaps.Count > 0)
+			{
 				ModContent.GetInstance<YarnResearch>().Logger.Info(
 					$"FreeCraftingSystem: {gaps.Count} recipe-gating Condition(s) have a research proxy but no " +
 					$"free-crafting equivalent, so their recipes stay blocked while free crafting is on: {string.Join(", ", gaps)}");

@@ -149,7 +149,8 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 				Main.LocalPlayer.mouseInterface = true;
 
 			object mainCategory = _mainCategoryField.GetValue(_menu);
-			if ((int)_currentOptionField.GetValue(mainCategory) != YarnCategoryOption) {
+			if ((int)_currentOptionField.GetValue(mainCategory) != YarnCategoryOption)
+			{
 				foreach (AYarnPower power in AllPowers())
 					power.OnClosed();
 				return;
@@ -185,7 +186,8 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 			button.Height.Set(lastVanillaButton.Height.Pixels, lastVanillaButton.Height.Percent);
 
 			Main.instance.LoadItem(ItemID.UnluckyYarn);
-			var icon = new ItemIconButton(YarnIcons.YarnCategory) {
+			var icon = new ItemIconButton(YarnIcons.YarnCategory)
+			{
 				IgnoresMouseInteraction = true,
 			};
 			icon.Width.Set(0f, 1f);
@@ -233,7 +235,8 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 			if (_yarnStrip == null)
 				return;
 
-			foreach (AYarnPower power in AllPowers()) {
+			foreach (AYarnPower power in AllPowers())
+			{
 				if (power.ButtonElement != null && power.ButtonElement.IsMouseHovering)
 					Main.instance.MouseText(power.HoverText.Value);
 			}
@@ -262,7 +265,8 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 			// depend on the option type.
 			const BindingFlags flags = BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance;
 
-			foreach (string fieldName in SelectionStyleFields) {
+			foreach (string fieldName in SelectionStyleFields)
+			{
 				FieldInfo target = ours.GetType().GetField(fieldName, flags);
 				FieldInfo source = template.GetType().GetField(fieldName, flags);
 
@@ -279,7 +283,8 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 			if ((int)_currentOptionField.GetValue(mainCategory) != YarnCategoryOption)
 				return;
 
-			if (_yarnStrip == null) {
+			if (_yarnStrip == null)
+			{
 				BuildYarnStrip();
 
 				// PowerStripUIElement's constructor takes no position - real category strips must be
@@ -348,14 +353,16 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 			UIElement template = GetActionButtonTemplate();
 			_buttonSlotSize = template != null ? (int)template.Width.Pixels : FallbackButtonSlotSize;
 
-			var info = new CreativePowerUIElementRequestInfo {
+			var info = new CreativePowerUIElementRequestInfo
+			{
 				PreferredButtonWidth = _buttonSlotSize,
 				PreferredButtonHeight = _buttonSlotSize,
 			};
 
 			var elements = new List<UIElement>();
 
-			foreach (AYarnPower power in AllPowers()) {
+			foreach (AYarnPower power in AllPowers())
+			{
 				power.ProvidePowerButtons(info, elements);
 				CopyActionButtonStyleFields(power);
 			}

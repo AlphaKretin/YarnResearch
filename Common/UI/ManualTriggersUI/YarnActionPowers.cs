@@ -98,11 +98,13 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 
 		protected override void DoAction()
 		{
-			if (_guard.Click()) {
+			if (_guard.Click())
+			{
 				if (YarnResearchPlayer.BulkSacrificeUnresearched())
 					SoundEngine.PlaySound(SoundID.Research);
 			}
-			else {
+			else
+			{
 				SoundEngine.PlaySound(SoundID.MenuTick);
 			}
 		}
@@ -136,11 +138,13 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 
 		protected override void DoAction()
 		{
-			if (_guard.Click()) {
+			if (_guard.Click())
+			{
 				if (YarnResearchPlayer.BulkClearResearched())
 					SoundEngine.PlaySound(TrashSound);
 			}
-			else {
+			else
+			{
 				SoundEngine.PlaySound(SoundID.MenuTick);
 			}
 		}

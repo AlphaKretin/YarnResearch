@@ -30,7 +30,7 @@ namespace YarnResearch.Common.Systems
 		// tiering) get an entry - absence means "never decided", not "off". Covers potions/food and every
 		// whitelisted placed buff item - NOT banners or Garden Gnome, which have no buffType of their own
 		// and use bespoke per-tick proximity forcing instead (see ToggledBanners/_gardenGnomeInfinite).
-		private static readonly Dictionary<int, bool> InfiniteBuffTypes = new();
+		private static readonly Dictionary<int, bool> InfiniteBuffTypes = [];
 
 		// Curated whitelist of placed buff items that grant a normal Player.buffType buff - itemType ->
 		// buffType.
@@ -63,7 +63,7 @@ namespace YarnResearch.Common.Systems
 		// letting vanilla re-grant it from the forced proximity flags instead made the buff flicker on and
 		// off. ForceProximityFlags still forces the per-enemy damage-bonus flags every tick, which is read
 		// live at hit time rather than in a specific tick phase.
-		private static readonly HashSet<int> ToggledBanners = new();
+		private static readonly HashSet<int> ToggledBanners = [];
 
 		// Garden Gnome's luck bonus is not a real Player.buffType/BuffID at all - no buff icon, implemented
 		// purely via the Player.HasGardenGnomeNearby proximity bool - so it gets the same per-tick forcing
@@ -82,7 +82,8 @@ namespace YarnResearch.Common.Systems
 			ToggleInfiniteBuffKeybind = KeybindLoader.RegisterKeybind(Mod, "ToggleInfiniteBuff", "Mouse3");
 			_buffBarFullText = Mod.GetLocalization($"{nameof(InfiniteBuffSystem)}.BuffBarFull");
 
-			_delBuffHook = (On_Player.orig_DelBuff orig, Player self, int b) => {
+			_delBuffHook = (On_Player.orig_DelBuff orig, Player self, int b) =>
+			{
 				if (self.whoAmI == Main.myPlayer)
 					HandleDismiss(self.buffType[b]);
 
@@ -94,7 +95,8 @@ namespace YarnResearch.Common.Systems
 			// one slot context deliberately, rather than GlobalItem.PreDrawInInventory everywhere, to avoid
 			// a distracting highlight in the normal inventory/hotbar/chests. Hooks DrawItemIcon rather than
 			// the outer Draw because it hands us the icon's exact center point and size limit directly.
-			_drawItemIconHook = (On_ItemSlot.orig_DrawItemIcon orig, Item item, int context, SpriteBatch spriteBatch, Vector2 screenPositionForItemCenter, float scale, float sizeLimit, Color environmentColor, float itemFade, bool flip) => {
+			_drawItemIconHook = (On_ItemSlot.orig_DrawItemIcon orig, Item item, int context, SpriteBatch spriteBatch, Vector2 screenPositionForItemCenter, float scale, float sizeLimit, Color environmentColor, float itemFade, bool flip) =>
+			{
 				if (context == ItemSlot.Context.CreativeInfinite && IsItemInfinite(item))
 					SlotTint.Draw(spriteBatch, screenPositionForItemCenter, sizeLimit * scale, YarnColors.InfiniteBuffSlot);
 
@@ -107,12 +109,14 @@ namespace YarnResearch.Common.Systems
 		{
 			ToggleInfiniteBuffKeybind = null;
 
-			if (_delBuffHook != null) {
+			if (_delBuffHook != null)
+			{
 				On_Player.DelBuff -= _delBuffHook;
 				_delBuffHook = null;
 			}
 
-			if (_drawItemIconHook != null) {
+			if (_drawItemIconHook != null)
+			{
 				On_ItemSlot.DrawItemIcon -= _drawItemIconHook;
 				_drawItemIconHook = null;
 			}
@@ -158,7 +162,8 @@ namespace YarnResearch.Common.Systems
 
 			(BuffItemKind kind, int buffType) = Classify(item);
 
-			return kind switch {
+			return kind switch
+			{
 				BuffItemKind.None => false,
 				BuffItemKind.GardenGnome => _gardenGnomeInfinite,
 				BuffItemKind.Banner => ToggledBanners.Contains(item.type),
@@ -199,7 +204,8 @@ namespace YarnResearch.Common.Systems
 				return;
 
 			Main.SceneMetrics.hasBanner = true;
-			foreach (int itemType in ToggledBanners) {
+			foreach (int itemType in ToggledBanners)
+			{
 				int bannerId = NPCLoader.BannerItemToNPC(itemType);
 				if (bannerId >= 0 && bannerId < Main.SceneMetrics.NPCBannerBuff.Length)
 					Main.SceneMetrics.NPCBannerBuff[bannerId] = true;
@@ -215,7 +221,8 @@ namespace YarnResearch.Common.Systems
 
 			(BuffItemKind kind, int buffType) = Classify(item);
 
-			switch (kind) {
+			switch (kind)
+			{
 				case BuffItemKind.GardenGnome:
 					_gardenGnomeInfinite = true;
 					break;
@@ -251,7 +258,8 @@ namespace YarnResearch.Common.Systems
 		private static void HandleFoodResearched(int buffType)
 		{
 			int tierRank = Array.IndexOf(WellFedTierOrder, buffType);
-			if (tierRank < 0) {
+			if (tierRank < 0)
+			{
 				// Non-Well-Fed food: same default rule as potions.
 				if (!InfiniteBuffTypes.ContainsKey(buffType))
 					SetInfinite(Main.LocalPlayer, buffType, on: DefaultsOn(buffType));
@@ -259,7 +267,8 @@ namespace YarnResearch.Common.Systems
 			}
 
 			int currentBestRank = -1;
-			for (int i = 0; i < WellFedTierOrder.Length; i++) {
+			for (int i = 0; i < WellFedTierOrder.Length; i++)
+			{
 				if (InfiniteBuffTypes.GetValueOrDefault(WellFedTierOrder[i]))
 					currentBestRank = i;
 			}
@@ -268,7 +277,8 @@ namespace YarnResearch.Common.Systems
 				return;
 
 			SetInfinite(Main.LocalPlayer, buffType, on: true);
-			for (int i = 0; i < WellFedTierOrder.Length; i++) {
+			for (int i = 0; i < WellFedTierOrder.Length; i++)
+			{
 				if (i != tierRank && InfiniteBuffTypes.GetValueOrDefault(WellFedTierOrder[i]))
 					SetInfinite(Main.LocalPlayer, WellFedTierOrder[i], on: false);
 			}
@@ -283,19 +293,22 @@ namespace YarnResearch.Common.Systems
 
 			(BuffItemKind kind, int buffType) = Classify(hoverItem);
 
-			switch (kind) {
+			switch (kind)
+			{
 				case BuffItemKind.GardenGnome:
 					_gardenGnomeInfinite = !_gardenGnomeInfinite;
 					break;
 
 				case BuffItemKind.Banner:
 					// The shared buff is granted with the first toggled banner and dropped with the last.
-					if (ToggledBanners.Remove(hoverItem.type)) {
+					if (ToggledBanners.Remove(hoverItem.type))
+					{
 						if (ToggledBanners.Count == 0)
 							SetInfinite(Main.LocalPlayer, BuffID.MonsterBanner, on: false);
 					}
 					else if (ToggledBanners.Count > 0 ||
-						SetInfinite(Main.LocalPlayer, BuffID.MonsterBanner, on: true, isManualToggle: true)) {
+						SetInfinite(Main.LocalPlayer, BuffID.MonsterBanner, on: true, isManualToggle: true))
+					{
 						ToggledBanners.Add(hoverItem.type);
 					}
 					break;
@@ -312,7 +325,8 @@ namespace YarnResearch.Common.Systems
 		// buff-cap safeguard, which banner toggling needs to know before adding to ToggledBanners.
 		public static bool SetInfinite(Player player, int buffType, bool on, bool isManualToggle = false)
 		{
-			if (on && IsBuffBarFull(player) && player.FindBuffIndex(buffType) < 0) {
+			if (on && IsBuffBarFull(player) && player.FindBuffIndex(buffType) < 0)
+			{
 				if (isManualToggle)
 					Main.NewText(_buffBarFullText.Value);
 				else
@@ -325,11 +339,13 @@ namespace YarnResearch.Common.Systems
 			BuffID.Sets.TimeLeftDoesNotDecrease[buffType] = on;
 			Main.buffNoTimeDisplay[buffType] = on;
 
-			if (on) {
+			if (on)
+			{
 				if (player.FindBuffIndex(buffType) < 0)
 					player.AddBuff(buffType, 60 * 60 * 60);
 			}
-			else {
+			else
+			{
 				int index = player.FindBuffIndex(buffType);
 				if (index >= 0)
 					player.DelBuff(index);
@@ -340,7 +356,8 @@ namespace YarnResearch.Common.Systems
 
 		private static bool IsBuffBarFull(Player player)
 		{
-			for (int i = 0; i < Player.MaxBuffs; i++) {
+			for (int i = 0; i < Player.MaxBuffs; i++)
+			{
 				if (player.buffType[i] <= 0)
 					return false;
 			}
@@ -362,10 +379,12 @@ namespace YarnResearch.Common.Systems
 			if (!InfiniteBuffTypes.GetValueOrDefault(buffType))
 				return;
 
-			if (buffType == BuffID.MonsterBanner) {
+			if (buffType == BuffID.MonsterBanner)
+			{
 				ToggledBanners.Clear();
 			}
-			else if (PlacedBuffItems.ContainsValue(buffType)) {
+			else if (PlacedBuffItems.ContainsValue(buffType))
+			{
 				return;
 			}
 
@@ -380,7 +399,8 @@ namespace YarnResearch.Common.Systems
 		// handling here - ForceProximityFlags runs every tick regardless.
 		public static void RegrantToggledBuffs(Player player)
 		{
-			foreach (var pair in InfiniteBuffTypes.ToArray()) {
+			foreach (var pair in InfiniteBuffTypes.ToArray())
+			{
 				if (!pair.Value)
 					continue;
 
@@ -415,20 +435,24 @@ namespace YarnResearch.Common.Systems
 			ToggledBanners.Clear();
 			_gardenGnomeInfinite = false;
 
-			if (tag.TryGet("onTypes", out int[] onTypes)) {
-				foreach (int buffType in onTypes) {
+			if (tag.TryGet("onTypes", out int[] onTypes))
+			{
+				foreach (int buffType in onTypes)
+				{
 					InfiniteBuffTypes[buffType] = true;
 					BuffID.Sets.TimeLeftDoesNotDecrease[buffType] = true;
 					Main.buffNoTimeDisplay[buffType] = true;
 				}
 			}
 
-			if (tag.TryGet("offTypes", out int[] offTypes)) {
+			if (tag.TryGet("offTypes", out int[] offTypes))
+			{
 				foreach (int buffType in offTypes)
 					InfiniteBuffTypes[buffType] = false;
 			}
 
-			if (tag.TryGet("toggledBanners", out int[] toggledBanners)) {
+			if (tag.TryGet("toggledBanners", out int[] toggledBanners))
+			{
 				foreach (int itemType in toggledBanners)
 					ToggledBanners.Add(itemType);
 			}
@@ -438,7 +462,8 @@ namespace YarnResearch.Common.Systems
 
 		public override void ClearWorld()
 		{
-			foreach (int buffType in InfiniteBuffTypes.Keys) {
+			foreach (int buffType in InfiniteBuffTypes.Keys)
+			{
 				BuffID.Sets.TimeLeftDoesNotDecrease[buffType] = false;
 				Main.buffNoTimeDisplay[buffType] = false;
 			}

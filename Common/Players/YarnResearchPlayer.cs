@@ -23,7 +23,7 @@ namespace YarnResearch.Common.Players
 
 		// Persistent default prefix per PrefixGroup for the Journey duplication prefix picker - e.g. choosing
 		// "Warding" while looking at an accessory applies it to every future accessory duplication.
-		public Dictionary<PrefixGroup, int> DefaultPrefixByGroup { get; } = new();
+		public Dictionary<PrefixGroup, int> DefaultPrefixByGroup { get; } = [];
 
 		// Not saved - the prefix PrefixPickerSystem.DuplicateWithPrefix is about to force onto the item it is
 		// building, handed to YarnResearchGlobalItem.OnCreated and consumed there in the same call.
@@ -51,7 +51,8 @@ namespace YarnResearch.Common.Players
 
 		public bool TryConsumeOneShotPrefix(int itemType, out int prefixId)
 		{
-			if (_pendingOneShotPrefix is { } pending && pending.ItemType == itemType) {
+			if (_pendingOneShotPrefix is { } pending && pending.ItemType == itemType)
+			{
 				prefixId = pending.PrefixId;
 				_pendingOneShotPrefix = null;
 				return true;
@@ -74,7 +75,8 @@ namespace YarnResearch.Common.Players
 				return;
 
 			var entries = new List<TagCompound>();
-			foreach (var (group, prefixId) in DefaultPrefixByGroup) {
+			foreach (var (group, prefixId) in DefaultPrefixByGroup)
+			{
 				var entry = new TagCompound { ["Prefix"] = prefixId };
 				group.Save(entry);
 				entries.Add(entry);
@@ -151,10 +153,12 @@ namespace YarnResearch.Common.Players
 		private void RunScan()
 		{
 			ResearchCascadeSystem.BeginBatch();
-			try {
+			try
+			{
 				ScanAndDiff(Player.inventory);
 			}
-			finally {
+			finally
+			{
 				ResearchCascadeSystem.EndBatch();
 			}
 		}
@@ -173,8 +177,10 @@ namespace YarnResearch.Common.Players
 			bool sacrificedAnything = false;
 
 			ResearchCascadeSystem.BeginBatch();
-			try {
-				for (int i = MainInventoryStart; i < MainInventoryEnd; i++) {
+			try
+			{
+				for (int i = MainInventoryStart; i < MainInventoryEnd; i++)
+				{
 					Item item = inventory[i];
 					if (item.IsAir || item.favorited || item.ResearchUnlockCount <= 0)
 						continue;
@@ -187,7 +193,8 @@ namespace YarnResearch.Common.Players
 					sacrificedAnything |= amountSacrificed > 0;
 				}
 			}
-			finally {
+			finally
+			{
 				ResearchCascadeSystem.EndBatch();
 			}
 
@@ -204,7 +211,8 @@ namespace YarnResearch.Common.Players
 			Item[] inventory = Main.LocalPlayer.inventory;
 			bool clearedAnything = false;
 
-			for (int i = MainInventoryStart; i < MainInventoryEnd; i++) {
+			for (int i = MainInventoryStart; i < MainInventoryEnd; i++)
+			{
 				Item item = inventory[i];
 				if (item.IsAir || item.favorited)
 					continue;
@@ -221,12 +229,14 @@ namespace YarnResearch.Common.Players
 
 		private void ScanAndDiff(Item[] items)
 		{
-			if (_snapshotTypes.Length != items.Length) {
+			if (_snapshotTypes.Length != items.Length)
+			{
 				_snapshotTypes = new int[items.Length];
 				_snapshotStacks = new int[items.Length];
 			}
 
-			for (int i = 0; i < items.Length; i++) {
+			for (int i = 0; i < items.Length; i++)
+			{
 				Item item = items[i];
 				if (_snapshotTypes[i] == item.type && _snapshotStacks[i] == item.stack)
 					continue;

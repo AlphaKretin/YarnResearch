@@ -46,9 +46,9 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 				(int)(dimensions.Y + dimensions.Height / 2f));
 
 			if (_drawDropShadow)
-				spriteBatch.Draw(texture, center + DropShadowOffset, _sourceRect,YarnColors.IconDropShadow, 0f, origin, scale, SpriteEffects.None, 0f);
+				spriteBatch.Draw(texture, center + DropShadowOffset, _sourceRect, YarnColors.IconDropShadow, 0f, origin, scale, SpriteEffects.None, 0f);
 
-			spriteBatch.Draw(texture, center, _sourceRect,IconTint, 0f, origin, scale, SpriteEffects.None, 0f);
+			spriteBatch.Draw(texture, center, _sourceRect, IconTint, 0f, origin, scale, SpriteEffects.None, 0f);
 		}
 	}
 }

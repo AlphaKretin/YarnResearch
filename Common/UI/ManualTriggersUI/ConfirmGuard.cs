@@ -13,7 +13,8 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 
 		public bool Click()
 		{
-			if (_ticksRemaining > 0) {
+			if (_ticksRemaining > 0)
+			{
 				_ticksRemaining = 0;
 				return true;
 			}

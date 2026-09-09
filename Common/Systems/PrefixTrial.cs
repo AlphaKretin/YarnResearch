@@ -35,7 +35,7 @@ namespace YarnResearch.Common.Systems
 
 		// A roll costs a SetDefaults plus the roll itself, far too much to repeat for every duplication slot
 		// on every frame. The outcome depends only on the item type and the prefix, so it is worked out once.
-		private static readonly Dictionary<(int ItemType, int PrefixId), Result> Results = new();
+		private static readonly Dictionary<(int ItemType, int PrefixId), Result> Results = [];
 
 		// Item.value is an int, and a prefix's multiplier is applied by multiplying-and-rounding whatever
 		// value the item already has - a low base value (a cheap Pickaxe) makes many distinct multipliers

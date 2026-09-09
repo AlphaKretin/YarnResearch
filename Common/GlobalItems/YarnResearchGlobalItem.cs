@@ -46,7 +46,8 @@ namespace YarnResearch.Common.GlobalItems
 
 			// A consumed one-shot is honoured whatever it is and always wins - including "no modifier", which
 			// has to stop here rather than fall through to the group default the player was overriding.
-			if (player.TryConsumeOneShotPrefix(item.type, out int oneShotPrefix)) {
+			if (player.TryConsumeOneShotPrefix(item.type, out int oneShotPrefix))
+			{
 				if (oneShotPrefix != PrefixTrial.NoPrefixId && item.CanRollPrefix(oneShotPrefix))
 					item.Prefix(oneShotPrefix);
 
@@ -68,7 +69,8 @@ namespace YarnResearch.Common.GlobalItems
 
 		public override void OnResearched(Item item, bool fullyResearched)
 		{
-			if (fullyResearched) {
+			if (fullyResearched)
+			{
 				ResearchCascadeSystem.HandleResearched(item.type);
 				InfiniteBuffSystem.HandleItemResearched(item);
 			}
@@ -94,7 +96,8 @@ namespace YarnResearch.Common.GlobalItems
 			if (keys.Count == 0)
 				return;
 
-			tooltips.Add(new TooltipLine(Mod, "ResearchCrateContentsHint", ResearchCrateContentsHintText.Format(keys[0])) {
+			tooltips.Add(new TooltipLine(Mod, "ResearchCrateContentsHint", ResearchCrateContentsHintText.Format(keys[0]))
+			{
 				Color = YarnColors.TooltipHint
 			});
 		}
@@ -110,7 +113,8 @@ namespace YarnResearch.Common.GlobalItems
 			if (keys.Count == 0)
 				return;
 
-			tooltips.Add(new TooltipLine(Mod, "ToggleInfiniteBuffHint", ToggleInfiniteBuffHintText.Format(keys[0])) {
+			tooltips.Add(new TooltipLine(Mod, "ToggleInfiniteBuffHint", ToggleInfiniteBuffHintText.Format(keys[0]))
+			{
 				Color = YarnColors.TooltipHint
 			});
 		}
@@ -126,7 +130,8 @@ namespace YarnResearch.Common.GlobalItems
 			if (keys.Count == 0 || PrefixCandidate.GetCandidates(item).Count == 0)
 				return;
 
-			tooltips.Add(new TooltipLine(Mod, "OpenPrefixPickerHint", OpenPrefixPickerHintText.Format(keys[0])) {
+			tooltips.Add(new TooltipLine(Mod, "OpenPrefixPickerHint", OpenPrefixPickerHintText.Format(keys[0]))
+			{
 				Color = YarnColors.TooltipHint
 			});
 		}
@@ -138,10 +143,12 @@ namespace YarnResearch.Common.GlobalItems
 			if (!PrefixPickerSystem.IsPreviewingPopupRow)
 				return;
 
-			tooltips.Add(new TooltipLine(Mod, "PrefixPickerPopupSetDefaultHint", PrefixPickerPopupSetDefaultHintText.Value) {
+			tooltips.Add(new TooltipLine(Mod, "PrefixPickerPopupSetDefaultHint", PrefixPickerPopupSetDefaultHintText.Value)
+			{
 				Color = YarnColors.TooltipHint
 			});
-			tooltips.Add(new TooltipLine(Mod, "PrefixPickerPopupDuplicateHint", PrefixPickerPopupDuplicateHintText.Value) {
+			tooltips.Add(new TooltipLine(Mod, "PrefixPickerPopupDuplicateHint", PrefixPickerPopupDuplicateHintText.Value)
+			{
 				Color = YarnColors.TooltipHint
 			});
 		}

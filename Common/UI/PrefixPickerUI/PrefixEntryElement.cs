@@ -27,7 +27,8 @@ namespace YarnResearch.Common.UI.PrefixPickerUI
 			Height.Set(36f, 0f);
 			SetPadding(6f);
 
-			var text = new UIText(candidate.DisplayName) {
+			var text = new UIText(candidate.DisplayName)
+			{
 				VAlign = 0.5f
 			};
 			Append(text);
