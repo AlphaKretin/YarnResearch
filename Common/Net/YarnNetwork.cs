@@ -1,8 +1,10 @@
 using System.Collections.Generic;
 using System.IO;
 using Terraria;
+using Terraria.GameContent.Creative;
 using Terraria.ID;
 using Terraria.ModLoader;
+using YarnResearch.Common.Configs;
 using YarnResearch.Common.Systems;
 
 namespace YarnResearch.Common.Net
@@ -41,6 +43,9 @@ namespace YarnResearch.Common.Net
 			{
 				case YarnMessageType.AutoResearchNotification:
 					ReceiveAutoResearchNotification(payloadReader, sender);
+					break;
+				case YarnMessageType.PartialResearch:
+					ReceivePartialResearch(payloadReader);
 					break;
 			}
 		}
@@ -129,10 +134,16 @@ namespace YarnResearch.Common.Net
 			ResearchCascadeSystem.AnnounceTeammateResearch(sender, origin, types);
 		}
 
-		public static void SendPartialResearch(int type, int count)
+		public static void SendPartialResearch(int type)
 		{
 			if (Main.netMode != NetmodeID.MultiplayerClient)
 				return;
+
+			var config = ModContent.GetInstance<YarnResearchConfig>();
+			if (!config.SharePartialResearch)
+				return;
+			ItemsSacrificedUnlocksTracker tracker = Main.LocalPlayerCreativeTracker.ItemSacrifices;
+			int count = tracker.GetSacrificeCount(type);
 
 			var payload = new MemoryStream();
 			using (var writer = new BinaryWriter(payload))
@@ -147,12 +158,23 @@ namespace YarnResearch.Common.Net
 			packet.Send();
 		}
 
-		private static void ReceivePartialResearch(BinaryReader reader, int sender)
+		private static void ReceivePartialResearch(BinaryReader reader)
 		{
 			int type = reader.ReadInt32();
-			int count = reader.ReadInt32();
+			int newCount = reader.ReadInt32();
 
-			MultiplayerSyncSystem.ReceivePartialResearch(type, count);
+			var config = ModContent.GetInstance<YarnResearchConfig>();
+			ItemsSacrificedUnlocksTracker tracker = Main.LocalPlayerCreativeTracker.ItemSacrifices;
+			int count = tracker.GetSacrificeCount(type);
+			if (newCount > count && config.SharePartialResearch)
+			{
+				// sac the same amount of the same item to catch up
+				int sacCount = newCount - count;
+				var fodder = new Item();
+				fodder.SetDefaults(type);
+				fodder.stack = sacCount;
+				Main.CreativeMenu.SacrificeItem(ref fodder, out _, spawnExcessItem: false, onlySacrificeIfItWouldFinishResearch: false);
+			}
 		}
 
 	}

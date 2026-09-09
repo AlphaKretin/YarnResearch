@@ -6,6 +6,7 @@ using Terraria.ID;
 using Terraria.Localization;
 using Terraria.ModLoader;
 using YarnResearch.Common.Configs;
+using YarnResearch.Common.Net;
 using YarnResearch.Common.Players;
 using YarnResearch.Common.Systems;
 using YarnResearch.Common.UI;
@@ -80,7 +81,7 @@ namespace YarnResearch.Common.GlobalItems
 			}
 			else
 			{
-				MultiplayerSyncSystem.SharePartialResearch(item);
+				YarnNetwork.SendPartialResearch(item.type);
 			}
 		}
 
