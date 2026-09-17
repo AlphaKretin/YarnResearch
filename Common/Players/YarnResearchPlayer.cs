@@ -105,10 +105,22 @@ namespace YarnResearch.Common.Players
 
 			var config = ModContent.GetInstance<YarnResearchConfig>();
 
-			if (Player.ZoneShimmer && ResearchCascadeSystem.MarkShimmerDiscovered() && config.AutoResearchShimmerOutputs)
+			if (!ResearchCascadeSystem.ShimmerDiscovered && IsNearShimmer() &&
+				ResearchCascadeSystem.MarkShimmerDiscovered() && config.AutoResearchShimmerOutputs)
 				ResearchCascadeSystem.RunShimmerCatchupScan();
 
 			ResearchCascadeSystem.CheckLiveConditionEdges();
+		}
+
+		// Some seeds scatter shimmer puddles too small to count as the Aether biome, so liquid proximity counts
+		// too. adjShimmer is only refreshed by AdjTiles(), which vanilla calls from the crafting UI alone.
+		private bool IsNearShimmer()
+		{
+			if (Player.ZoneShimmer)
+				return true;
+
+			Player.AdjTiles();
+			return Player.adjShimmer;
 		}
 
 		// Called from ResearchCascadeSystem.UpdateUI, not PostUpdate: the world-update path is skipped while
