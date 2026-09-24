@@ -773,32 +773,34 @@ namespace YarnResearch.Common.Systems
 		public static void ManualMiscCascadeScan() =>
 			RunCatchupScan(Mechanism.Misc | Mechanism.Crate, ProcessMiscCascadesAndCrates, "manual misc. cascade scan");
 
+		// A client never holds another player's research - their creativeTracker here is empty - so the
+		// catch-up asks each online teammate for their list and researches what comes back, in
+		// ResearchTeammateTypes.
 		public static void RunTeamCatchup()
 		{
-			if (Main.netMode != NetmodeID.MultiplayerClient)
+			if (Main.netMode != NetmodeID.MultiplayerClient || Main.LocalPlayer.team == 0)
 				return;
 
-			int team = Main.LocalPlayer.team;
-			if (team == 0)
-				return;
+			YarnNetwork.SendTeamCatchupRequest();
+		}
 
-			for (int i = 0; i < Main.maxPlayers; i++)
+		public static void ResearchTeammateTypes(List<int> types)
+		{
+			ItemsSacrificedUnlocksTracker tracker = Main.LocalPlayerCreativeTracker.ItemSacrifices;
+
+			BeginBatch();
+			try
 			{
-				if (i == Main.myPlayer || !Main.player[i].active || Main.player[i].team != team)
-					continue;
-
-				ItemsSacrificedUnlocksTracker tracker = Main.player[i].creativeTracker.ItemSacrifices;
-
-				tracker.ForEachItemWithResearchProgress(type =>
+				foreach (int type in types)
 				{
-					if (Main.LocalPlayerCreativeTracker.ItemSacrifices.IsFullyResearched(type))
-						return;
-
-					ResearchWithOrigin(type, ResearchOrigin.Team);
-				});
+					if (!tracker.IsFullyResearched(type))
+						ResearchWithOrigin(type, ResearchOrigin.Team);
+				}
 			}
-
-
+			finally
+			{
+				EndBatch();
+			}
 		}
 
 		private static void ProcessMiscCascadesAndCrates(int type)

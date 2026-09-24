@@ -103,7 +103,7 @@ HeldItemsActionPower.HoverText: Research Held Items
 CascadeActionPower.HoverText: Research Craftable Recipes
 MiscCascadeActionPower.HoverText: Research Misc. Sources
 ShimmerActionPower.HoverText: Research Shimmered Items
-TeamCatchupPower.HoverText: Sync With Teammate Resarch
+TeamCatchupPower.HoverText: Sync With Teammate Research
 
 FreeCraftingTogglePower: {
 	HoverText: Craft Anywhere Disabled

@@ -71,6 +71,7 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 		private static MiscCascadeActionPower _miscCascadePower;
 		private static FreeCraftingTogglePower _freeCraftingPower;
 		private static ShimmerActionPower _shimmerPower;
+		private static TeamCatchupPower _teamCatchupPower;
 		private static SacrificeActionPower _sacrificePower;
 		private static ClearActionPower _clearPower;
 
@@ -112,6 +113,7 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 			_miscCascadePower = null;
 			_freeCraftingPower = null;
 			_shimmerPower = null;
+			_teamCatchupPower = null;
 			_sacrificePower = null;
 			_clearPower = null;
 		}
@@ -126,6 +128,7 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 			yield return _cascadePower;
 			yield return _shimmerPower;
 			yield return _miscCascadePower;
+			yield return _teamCatchupPower;
 			yield return _sacrificePower;
 			yield return _clearPower;
 		}
@@ -347,6 +350,7 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 			_miscCascadePower = RegisterPower<MiscCascadeActionPower>("yarn_misccascade");
 			_freeCraftingPower = RegisterPower<FreeCraftingTogglePower>("yarn_freecrafting");
 			_shimmerPower = RegisterPower<ShimmerActionPower>("yarn_shimmer");
+			_teamCatchupPower = RegisterPower<TeamCatchupPower>("yarn_teamcatchup");
 			_sacrificePower = RegisterPower<SacrificeActionPower>("yarn_sacrifice");
 			_clearPower = RegisterPower<ClearActionPower>("yarn_clear");
 

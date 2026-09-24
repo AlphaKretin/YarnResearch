@@ -13,7 +13,9 @@ namespace YarnResearch.Common.Net
 	{
 		AutoResearchNotification,
 		PartialResearch,
-		ShimmerDiscovered
+		ShimmerDiscovered,
+		TeamCatchupRequest,
+		TeamResearchList
 	}
 
 	// Every YARN packet is [message type][sender player index][payload length][payload], so the server can
@@ -50,6 +52,12 @@ namespace YarnResearch.Common.Net
 					break;
 				case YarnMessageType.ShimmerDiscovered:
 					ReceiveShimmerDiscovered();
+					break;
+				case YarnMessageType.TeamCatchupRequest:
+					ReceiveTeamCatchupRequest(sender);
+					break;
+				case YarnMessageType.TeamResearchList:
+					ReceiveTeamResearchList(payloadReader);
 					break;
 			}
 		}
@@ -90,6 +98,12 @@ namespace YarnResearch.Common.Net
 			if (Main.netMode != NetmodeID.MultiplayerClient || types.Count == 0)
 				return;
 
+			SendTypeList(YarnMessageType.AutoResearchNotification, (byte)origin, types);
+		}
+
+		// Sends types as [header byte][count][types] payloads, split across as many packets as needed.
+		private static void SendTypeList(YarnMessageType messageType, byte header, IEnumerable<int> types)
+		{
 			var chunk = new List<int>(MaxTypesPerPacket);
 
 			foreach (int type in types)
@@ -98,21 +112,21 @@ namespace YarnResearch.Common.Net
 
 				if (chunk.Count == MaxTypesPerPacket)
 				{
-					SendNotificationChunk(origin, chunk);
+					SendTypeChunk(messageType, header, chunk);
 					chunk.Clear();
 				}
 			}
 
 			if (chunk.Count > 0)
-				SendNotificationChunk(origin, chunk);
+				SendTypeChunk(messageType, header, chunk);
 		}
 
-		private static void SendNotificationChunk(int origin, List<int> types)
+		private static void SendTypeChunk(YarnMessageType messageType, byte header, List<int> types)
 		{
 			var payload = new MemoryStream();
 			using (var writer = new BinaryWriter(payload))
 			{
-				writer.Write((byte)origin);
+				writer.Write(header);
 				writer.Write((ushort)types.Count);
 
 				foreach (int type in types)
@@ -120,21 +134,61 @@ namespace YarnResearch.Common.Net
 			}
 
 			byte[] bytes = payload.ToArray();
-			ModPacket packet = NewPacket(YarnMessageType.AutoResearchNotification, Main.myPlayer, bytes.Length);
+			ModPacket packet = NewPacket(messageType, Main.myPlayer, bytes.Length);
 			packet.Write(bytes);
 			packet.Send();
 		}
 
-		private static void ReceiveAutoResearchNotification(BinaryReader reader, int sender)
+		private static List<int> ReadTypeList(BinaryReader reader)
 		{
-			int origin = reader.ReadByte();
 			int count = reader.ReadUInt16();
 
 			var types = new List<int>(count);
 			for (int i = 0; i < count; i++)
 				types.Add(reader.ReadInt32());
 
-			ResearchCascadeSystem.AnnounceTeammateResearch(sender, origin, types);
+			return types;
+		}
+
+		private static void ReceiveAutoResearchNotification(BinaryReader reader, int sender)
+		{
+			int origin = reader.ReadByte();
+			ResearchCascadeSystem.AnnounceTeammateResearch(sender, origin, ReadTypeList(reader));
+		}
+
+		public static void SendTeamCatchupRequest()
+		{
+			if (Main.netMode != NetmodeID.MultiplayerClient)
+				return;
+
+			// no payload - the server relays it to the sender's teammates, and the sender index says who asked
+			ModPacket packet = NewPacket(YarnMessageType.TeamCatchupRequest, Main.myPlayer, 0);
+			packet.Send();
+		}
+
+		// Answers with everything this player has fully researched. The reply is relayed to the whole team,
+		// so it carries the requester's index and everyone else ignores it.
+		private static void ReceiveTeamCatchupRequest(int requester)
+		{
+			ItemsSacrificedUnlocksTracker tracker = Main.LocalPlayerCreativeTracker.ItemSacrifices;
+			var researched = new List<int>();
+
+			tracker.ForEachItemWithResearchProgress(type =>
+			{
+				if (tracker.IsFullyResearched(type))
+					researched.Add(type);
+			});
+
+			SendTypeList(YarnMessageType.TeamResearchList, (byte)requester, researched);
+		}
+
+		private static void ReceiveTeamResearchList(BinaryReader reader)
+		{
+			int requester = reader.ReadByte();
+			List<int> types = ReadTypeList(reader);
+
+			if (requester == Main.myPlayer)
+				ResearchCascadeSystem.ResearchTeammateTypes(types);
 		}
 
 		public static void SendPartialResearch(int type)
