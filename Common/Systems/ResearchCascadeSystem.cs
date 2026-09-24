@@ -15,7 +15,6 @@ using Terraria.GameContent.UI.Chat;
 using Terraria.ID;
 using Terraria.Localization;
 using Terraria.ModLoader;
-using Terraria.ModLoader.IO;
 using Terraria.Utilities;
 using YarnResearch.Common.Configs;
 using YarnResearch.Common.Net;
@@ -237,9 +236,6 @@ namespace YarnResearch.Common.Systems
 		// ProcessShimmerOutputs), since RecipeLoader.DecraftAvailable depends on live Conditions (biome,
 		// world type, etc.) that can change without a recipe-data reload.
 		private static readonly Dictionary<int, int> ShimmerOutputsByInput = [];
-
-		// Persisted per-world: once true, Shimmer cascade edges stay open for the rest of the world's life.
-		private static bool _shimmerDiscovered;
 
 		public static ModKeybind ResearchCrateContentsKeybind { get; private set; }
 
@@ -717,7 +713,7 @@ namespace YarnResearch.Common.Systems
 			ConditionProxyItemTypes.TryGetValue(condition, out HashSet<int> proxyItemTypes) &&
 			proxyItemTypes.Any(ResearchedTypes.Contains);
 
-		public static bool ShimmerDiscovered => _shimmerDiscovered;
+		public static bool ShimmerDiscovered => Main.LocalPlayer.GetModPlayer<YarnResearchPlayer>().ShimmerDiscovered;
 
 		// Researches type, tagging it with the mechanism responsible for the duration of the call.
 		// CreativeUI.ResearchItem synchronously re-enters HandleResearched via GlobalItem.OnResearched,
@@ -735,26 +731,27 @@ namespace YarnResearch.Common.Systems
 		// The held-item threshold path, driven by YarnResearchPlayer's inventory scan.
 		public static void ResearchAsHeldItem(int type) => ResearchWithOrigin(type, ResearchOrigin.Held);
 
-		// Idempotent - safe to call every tick while the player is near Shimmer. Sets the persisted
-		// per-world "has seen Shimmer" flag unconditionally (independent of the AutoResearchShimmerOutputs
-		// toggle - visiting Shimmer is world knowledge, not itself a research action). Returns true only
-		// on the call that actually flips the flag, so callers can gate a one-time catch-up scan on it.
+		// Idempotent - safe to call every tick while the player is near Shimmer. Sets the local player's
+		// saved "has seen Shimmer" flag regardless of the AutoResearchShimmerOutputs toggle, since finding
+		// Shimmer is not itself a research action. Returns true only on the call that actually flips the flag,
+		// so callers can gate a one-time catch-up scan on it.
 		public static bool MarkShimmerDiscovered()
 		{
-			if (_shimmerDiscovered)
+			var modPlayer = Main.LocalPlayer.GetModPlayer<YarnResearchPlayer>();
+			if (modPlayer.ShimmerDiscovered)
 				return false;
 
-			_shimmerDiscovered = true;
+			modPlayer.ShimmerDiscovered = true;
 			YarnNetwork.SendShimmerDiscovered();
 			return true;
 		}
 
-		// Requires MarkShimmerDiscovered to have been called at least once (per world) - a no-op otherwise.
-		// Callable both by the automatic path (immediately after first discovery, gated by the config toggle
-		// there) and directly by the manual trigger button, which bypasses the toggle.
+		// A no-op until the local player has discovered Shimmer. Callable both by the automatic path
+		// (immediately after first discovery, gated by the config toggle there) and directly by the manual
+		// trigger button, which bypasses the toggle.
 		public static void RunShimmerCatchupScan()
 		{
-			if (!_shimmerDiscovered)
+			if (!ShimmerDiscovered)
 				return;
 
 			RunCatchupScan(Mechanism.Shimmer, ProcessShimmerOutputs, "shimmer catch-up");
@@ -1433,22 +1430,6 @@ namespace YarnResearch.Common.Systems
 				AddToIndex(StationItemTypesByTile, TileID.DemonAltar, type);
 		}
 
-		public override void SaveWorldData(TagCompound tag)
-		{
-			if (_shimmerDiscovered)
-				tag["shimmerDiscovered"] = true;
-		}
-
-		public override void LoadWorldData(TagCompound tag)
-		{
-			_shimmerDiscovered = tag.ContainsKey("shimmerDiscovered");
-		}
-
-		public override void ClearWorld()
-		{
-			_shimmerDiscovered = false;
-		}
-
 		public override void OnWorldLoad()
 		{
 			ResearchedTypes.Clear();
@@ -1507,7 +1488,7 @@ namespace YarnResearch.Common.Systems
 				if (config.AutoResearchMiscCascades || _forcedMechanisms.HasFlag(Mechanism.Misc))
 					ProcessMiscCascades(type);
 
-				if ((config.AutoResearchShimmerOutputs || _forcedMechanisms.HasFlag(Mechanism.Shimmer)) && _shimmerDiscovered)
+				if ((config.AutoResearchShimmerOutputs || _forcedMechanisms.HasFlag(Mechanism.Shimmer)) && ShimmerDiscovered)
 					ProcessShimmerOutputs(type);
 
 				if (config.AutoResearchCrateContents || _forcedMechanisms.HasFlag(Mechanism.Crate))

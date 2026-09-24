@@ -57,7 +57,7 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 		protected override YarnIcon Icon => YarnIcons.ShimmerScan;
 		public override LocalizedText HoverText => HoverTextValue;
 
-		// No-op until Shimmer has been discovered in this world - RunShimmerCatchupScan gates itself on that.
+		// No-op until this player has discovered Shimmer - RunShimmerCatchupScan gates itself on that.
 		protected override void DoAction()
 		{
 			ResearchCascadeSystem.RunShimmerCatchupScan();

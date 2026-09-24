@@ -73,10 +73,17 @@ namespace YarnResearch.Common.Players
 		// player who wants it on keeps it on everywhere.
 		public bool FreeCraftingEnabled { get; set; }
 
+		// Per character rather than per world so that teams share it and independent players on the same
+		// server each have to find Shimmer themselves, matching how vanilla research is shared.
+		public bool ShimmerDiscovered { get; set; }
+
 		public override void SaveData(TagCompound tag)
 		{
 			if (FreeCraftingEnabled)
 				tag["FreeCrafting"] = true;
+
+			if (ShimmerDiscovered)
+				tag["ShimmerDiscovered"] = true;
 
 			if (DefaultPrefixByGroup.Count == 0)
 				return;
@@ -95,6 +102,7 @@ namespace YarnResearch.Common.Players
 		public override void LoadData(TagCompound tag)
 		{
 			FreeCraftingEnabled = tag.ContainsKey("FreeCrafting");
+			ShimmerDiscovered = tag.ContainsKey("ShimmerDiscovered");
 
 			// Defaults saved before groups existed were keyed by a single PrefixCategory, which no longer
 			// identifies anything - that tag is left unread so those entries are simply dropped.
