@@ -122,6 +122,7 @@ namespace YarnResearch.Common.Players
 				ResearchCascadeSystem.MarkShimmerDiscovered();
 
 			ResearchCascadeSystem.CheckLiveConditionEdges();
+			ResearchCascadeSystem.CheckShimmerGateEdges();
 		}
 
 		// Some seeds scatter shimmer puddles too small to count as the Aether biome, so liquid proximity counts
@@ -181,8 +182,11 @@ namespace YarnResearch.Common.Players
 		// isn't actually present until the player dies once.
 		public override void OnEnterWorld()
 		{
-			if (Player.whoAmI == Main.myPlayer)
-				InfiniteBuffSystem.RegrantToggledBuffs(Player);
+			if (Player.whoAmI != Main.myPlayer)
+				return;
+
+			InfiniteBuffSystem.RegrantToggledBuffs(Player);
+			ResearchCascadeSystem.RunJoinCatchup();
 		}
 
 		// Callable independent of AutoResearchHeldItems - used by the manual trigger button.

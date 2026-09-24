@@ -171,6 +171,16 @@ namespace YarnResearch.Common.Systems
 		private static readonly List<int> RecipesRequiringTorchGodsFavor = [];
 		private static bool _torchGodsFavorWasUnlocked;
 
+		// What ShimmerTransforms.IsItemTransformLocked and RecipeLoader.DecraftAvailable read from the world:
+		// every recipe's DecraftConditions, plus the Golem and Moon Lord kills that lock some decrafts and
+		// transmutes outright. Watched by CheckShimmerGateEdges; seeded on the first check of each world so
+		// the join catch-up isn't repeated.
+		private static readonly List<Condition> DecraftGatingConditions = [];
+		private static readonly Dictionary<Condition, bool> DecraftConditionWasMet = [];
+		private static bool _golemWasDowned;
+		private static bool _moonLordWasDowned;
+		private static bool _shimmerGatesSeeded;
+
 		// Recipe.needTorchGodsFavor is a legacy internal bool that tModLoader never converts into a
 		// Condition the way it does needWater/needGraveyardBiome/etc. (PostAddRecipes' ReplaceCondition
 		// calls list every field that does get converted, and this isn't one), so recipe.Conditions has no
@@ -537,6 +547,34 @@ namespace YarnResearch.Common.Systems
 			}
 		}
 
+		// Shimmer outputs are only rechecked when their input is researched, so an item researched while its
+		// shimmer was locked needs another pass once the world state unlocking it arrives.
+		public static void CheckShimmerGateEdges()
+		{
+			bool golemDowned = NPC.downedGolemBoss;
+			bool moonLordDowned = NPC.downedMoonlord;
+			bool unlocked = (golemDowned && !_golemWasDowned) || (moonLordDowned && !_moonLordWasDowned);
+			_golemWasDowned = golemDowned;
+			_moonLordWasDowned = moonLordDowned;
+
+			foreach (Condition condition in DecraftGatingConditions)
+			{
+				bool isMet = condition.IsMet();
+				bool wasMet = DecraftConditionWasMet.TryGetValue(condition, out bool previous) && previous;
+				DecraftConditionWasMet[condition] = isMet;
+				unlocked |= isMet && !wasMet;
+			}
+
+			if (!_shimmerGatesSeeded)
+			{
+				_shimmerGatesSeeded = true;
+				return;
+			}
+
+			if (unlocked && ModContent.GetInstance<YarnResearchConfig>().AutoResearchShimmerOutputs)
+				RunShimmerCatchupScan();
+		}
+
 		// A station the player is physically standing next to can be crafted at right now, whether or not its
 		// item has ever been researched, so the recipes it gates get the same false->true recheck a Condition
 		// gets - StationResearched honours the same live adjacency, so those recipes actually pass. Adjacency
@@ -784,6 +822,23 @@ namespace YarnResearch.Common.Systems
 			YarnNetwork.SendTeamCatchupRequest();
 		}
 
+		// OnWorldLoad indexes what is already researched without cascading it, so whatever those items
+		// unlock beyond what was unlocked wherever they were researched - another world, an older version,
+		// a toggle that was off - is only found here. Each mechanism still follows its own toggle.
+		public static void RunJoinCatchup()
+		{
+			BeginBatch();
+			try
+			{
+				foreach (int type in ResearchedTypes)
+					_batchQueue.Enqueue(type);
+			}
+			finally
+			{
+				EndBatch();
+			}
+		}
+
 		public static void ResearchTeammateTypes(List<int> types)
 		{
 			ItemsSacrificedUnlocksTracker tracker = Main.LocalPlayerCreativeTracker.ItemSacrifices;
@@ -850,6 +905,9 @@ namespace YarnResearch.Common.Systems
 		private static void ProcessShimmerOutputs(int type)
 		{
 			using var _ = CascadeProfile.Time(CascadeProfile.Phase.Shimmer);
+
+			if (ShimmerTransforms.IsItemTransformLocked(type))
+				return;
 
 			if (ShimmerOutputsByInput.TryGetValue(type, out int transformOutput))
 			{
@@ -1322,7 +1380,24 @@ namespace YarnResearch.Common.Systems
 			}
 
 			FlushNotifications();
+			RefreshFreeCrafting();
 			CascadeProfile.Report();
+		}
+
+		// Set when research adds something free crafting reads (a station, or a Condition proxy).
+		private static bool _freeCraftingStale;
+
+		// Free crafting only applies inside Recipe.UpdateRecipeList, which vanilla runs on inventory changes -
+		// research arriving from a teammate or a catch-up changes no inventory, so the list would stay stale.
+		private static void RefreshFreeCrafting()
+		{
+			if (!_freeCraftingStale)
+				return;
+
+			_freeCraftingStale = false;
+
+			if (FreeCraftingSystem.Enabled)
+				Recipe.UpdateRecipeList();
 		}
 
 		// Wraps DrainCascade with timing/counting, logged via Mod.Logger so it's cheap enough to leave
@@ -1396,6 +1471,7 @@ namespace YarnResearch.Common.Systems
 			}
 
 			FlushNotifications();
+			RefreshFreeCrafting();
 			CascadeProfile.Report();
 		}
 
@@ -1408,6 +1484,7 @@ namespace YarnResearch.Common.Systems
 			RecipesRequiringTorchGodsFavor.Clear();
 			ShimmerOutputsByInput.Clear();
 			BiomeTorchVariants.Clear();
+			DecraftGatingConditions.Clear();
 
 			int[] shimmerTransforms = ItemID.Sets.ShimmerTransformToItem;
 			for (int type = 0; type < shimmerTransforms.Length; type++)
@@ -1431,6 +1508,12 @@ namespace YarnResearch.Common.Systems
 
 				if (NeedTorchGodsFavorField != null && (bool)NeedTorchGodsFavorField.GetValue(recipe))
 					RecipesRequiringTorchGodsFavor.Add(i);
+
+				foreach (Condition condition in recipe.DecraftConditions)
+				{
+					if (!DecraftGatingConditions.Contains(condition))
+						DecraftGatingConditions.Add(condition);
+				}
 			}
 
 			for (int type = 0; type < ItemLoader.ItemCount; type++)
@@ -1466,6 +1549,8 @@ namespace YarnResearch.Common.Systems
 			LiveConditionWasMet.Clear();
 			LiveAdjacentStationTiles.Clear();
 			_torchGodsFavorWasUnlocked = false;
+			DecraftConditionWasMet.Clear();
+			_shimmerGatesSeeded = false;
 
 			for (int type = 0; type < ItemLoader.ItemCount; type++)
 			{
@@ -1620,7 +1705,11 @@ namespace YarnResearch.Common.Systems
 			if (!ResearchedTypes.Add(type))
 				return;
 
+			int stationCount = ResearchedStationTiles.Count;
 			NoteStationTile(type);
+
+			if (ResearchedStationTiles.Count != stationCount || ConditionsByProxyItemType.ContainsKey(type))
+				_freeCraftingStale = true;
 
 			queue.Enqueue(type);
 			notificationQueue?.Enqueue(type);
