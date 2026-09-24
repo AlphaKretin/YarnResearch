@@ -35,7 +35,9 @@ namespace YarnResearch.Common.Systems
 			Shimmer,
 			Crate,
 			Shop,
-			Team
+			Team,
+			// Researched by hand. Never announced to the player who did it, only mirrored to their team.
+			Manual
 		}
 
 		// Chat label per origin, keyed by enum member name so the two can't drift out of order.
@@ -654,14 +656,17 @@ namespace YarnResearch.Common.Systems
 			}
 		}
 
-		// A teammate's YARN announced an automatic research batch and mirrored it here. Only the types that
-		// actually reached this client over the wire are echoed: anything this client researched itself has
-		// already been announced under its own origin, and anything a teammate researched by hand never
-		// sends a mirror at all, so vanilla's silence there is preserved.
+		// A teammate's YARN announced a research batch and mirrored it here. Only the types that actually
+		// reached this client over the wire are echoed: anything this client researched itself has already
+		// been announced under its own origin.
 		public static void AnnounceTeammateResearch(int sender, int origin, List<int> types)
 		{
-			if (!ModContent.GetInstance<YarnResearchConfig>().ShowAutoResearchNotifications ||
-				origin < 0 || origin >= NotificationLabels.Length ||
+			var config = ModContent.GetInstance<YarnResearchConfig>();
+			bool shown = origin == (int)ResearchOrigin.Manual
+				? config.ShowTeammateManualResearch
+				: config.ShowAutoResearchNotifications;
+
+			if (!shown || origin < 0 || origin >= NotificationLabels.Length ||
 				sender < 0 || sender >= Main.maxPlayers || !Main.player[sender].active)
 				return;
 
@@ -1340,6 +1345,10 @@ namespace YarnResearch.Common.Systems
 				$"max queue depth {maxQueueDepth}, took {stopwatch.Elapsed.TotalMilliseconds:F2}ms");
 		}
 
+		// Set while a teammate's shared partial research is applied, so an unlock it completes is not
+		// mistaken for research done by hand here and echoed back to the team.
+		public static bool ApplyingSharedResearch { get; set; }
+
 		public static void HandleResearched(int type)
 		{
 			if (ResearchedTypes.Contains(type))
@@ -1351,6 +1360,9 @@ namespace YarnResearch.Common.Systems
 				if (PendingOrigins[origin].Remove(type))
 					notificationQueue ??= PendingNotifications[origin];
 			}
+
+			if (notificationQueue == null && !ApplyingSharedResearch)
+				notificationQueue = PendingNotifications[(int)ResearchOrigin.Manual];
 
 			if (_activeCascadeQueue != null)
 			{
@@ -1620,30 +1632,41 @@ namespace YarnResearch.Common.Systems
 			using var _ = CascadeProfile.Time(CascadeProfile.Phase.Notifications);
 
 			var config = ModContent.GetInstance<YarnResearchConfig>();
-			if (config.ShowAutoResearchNotifications)
+			bool anyShown = false;
+
+			for (int origin = 0; origin < PendingNotifications.Length; origin++)
 			{
-				for (int origin = 0; origin < PendingNotifications.Length; origin++)
+				if (PendingNotifications[origin].Count == 0)
+					continue;
+
+				// Always sent: the sender is never shown their own manual research, so whether it appears
+				// is entirely the receiving teammate's setting.
+				if (origin == (int)ResearchOrigin.Manual)
 				{
-					if (PendingNotifications[origin].Count == 0)
-						continue;
-
-					CascadeProfile.NoteNotified(PendingNotifications[origin].Count);
-
-					string tagList;
-					using (CascadeProfile.Time(CascadeProfile.Phase.TagList))
-						tagList = BuildTagList(PendingNotifications[origin], TaggedTypes);
-
-					using (CascadeProfile.Time(CascadeProfile.Phase.NewText))
-						DeferNotification(NotificationText.Format(NotificationLabels[origin].Value, tagList));
-
-					// Mirrored to teammates from here rather than from the research itself, so exactly what
-					// this player was told is what they are told - and research done by hand, which posts
-					// nothing here, stays as silent for them as vanilla leaves it.
 					YarnNetwork.SendAutoResearchNotification(origin, PendingNotifications[origin]);
+					continue;
 				}
 
-				RequestTagTextures();
+				if (!config.ShowAutoResearchNotifications)
+					continue;
+
+				CascadeProfile.NoteNotified(PendingNotifications[origin].Count);
+
+				string tagList;
+				using (CascadeProfile.Time(CascadeProfile.Phase.TagList))
+					tagList = BuildTagList(PendingNotifications[origin], TaggedTypes);
+
+				using (CascadeProfile.Time(CascadeProfile.Phase.NewText))
+					DeferNotification(NotificationText.Format(NotificationLabels[origin].Value, tagList));
+
+				// Mirrored to teammates from here rather than from the research itself, so exactly what
+				// this player was told is what they are told.
+				YarnNetwork.SendAutoResearchNotification(origin, PendingNotifications[origin]);
+				anyShown = true;
 			}
+
+			if (anyShown)
+				RequestTagTextures();
 
 			foreach (Queue<int> queue in PendingNotifications)
 				queue.Clear();

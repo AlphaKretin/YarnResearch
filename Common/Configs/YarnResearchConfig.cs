@@ -38,5 +38,8 @@ namespace YarnResearch.Common.Configs
 
 		[DefaultValue(true)]
 		public bool ShowAutoResearchNotifications;
+
+		[DefaultValue(true)]
+		public bool ShowTeammateManualResearch;
 	}
 }

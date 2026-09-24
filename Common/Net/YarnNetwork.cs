@@ -82,10 +82,9 @@ namespace YarnResearch.Common.Net
 			return packet;
 		}
 
-		// Mirrors one origin's chat notification to the sender's teammates, so research YARN performed
-		// automatically announces itself on both ends - matching what the sender just saw - while research
-		// they did by hand stays silent, exactly as vanilla leaves it. Called from the sender's own
-		// notification flush, so it inherits that player's ShowAutoResearchNotifications preference.
+		// Mirrors one origin's chat notification to the sender's teammates. Called from the sender's own
+		// notification flush, so automatic research inherits that player's ShowAutoResearchNotifications
+		// preference; research done by hand is always sent and left to the receiver's setting.
 		public static void SendAutoResearchNotification(int origin, IReadOnlyCollection<int> types)
 		{
 			if (Main.netMode != NetmodeID.MultiplayerClient || types.Count == 0)
@@ -177,7 +176,16 @@ namespace YarnResearch.Common.Net
 				var fodder = new Item();
 				fodder.SetDefaults(type);
 				fodder.stack = sacCount;
-				Main.CreativeMenu.SacrificeItem(ref fodder, out _, spawnExcessItem: false, onlySacrificeIfItWouldFinishResearch: false);
+
+				ResearchCascadeSystem.ApplyingSharedResearch = true;
+				try
+				{
+					Main.CreativeMenu.SacrificeItem(ref fodder, out _, spawnExcessItem: false, onlySacrificeIfItWouldFinishResearch: false);
+				}
+				finally
+				{
+					ResearchCascadeSystem.ApplyingSharedResearch = false;
+				}
 			}
 		}
 

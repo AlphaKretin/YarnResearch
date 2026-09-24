@@ -56,6 +56,11 @@ Configs: {
 			Label: Show Notifications in Chat
 			Tooltip: Show a summary in chat when items are automatically researched
 		}
+
+		ShowTeammateManualResearch: {
+			Label: Show Teammates' Research in Chat
+			Tooltip: In multiplayer, show a summary in chat when a teammate researches items by hand
+		}
 	}
 }
 
@@ -88,6 +93,7 @@ ResearchCascadeSystem: {
 		Crate: Auto-Looted
 		Shop: Auto-Purchased
 		Team: Researched by teammates
+		Manual: Researched
 	}
 }
 
