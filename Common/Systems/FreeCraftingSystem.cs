@@ -131,22 +131,6 @@ namespace YarnResearch.Common.Systems
 				player.adjTile[tile] = true;
 				FlippedTiles.Add(tile);
 			}
-
-			// A researched station only satisfies the recipes of the tiles it counts as (a Table counting as
-			// a Work Bench, etc.) if those aliases are set too - vanilla's own AdjTiles applies this same
-			// public mapping when it fills adjTile from real proximity.
-			List<int> countsAs = Recipe.TileCountsAs[tile];
-			if (countsAs == null)
-				return;
-
-			foreach (int alias in countsAs)
-			{
-				if (alias >= 0 && alias < player.adjTile.Length && !player.adjTile[alias])
-				{
-					player.adjTile[alias] = true;
-					FlippedTiles.Add(alias);
-				}
-			}
 		}
 
 		// A Condition with a registered proxy is one the research cascade already treats as satisfiable, so

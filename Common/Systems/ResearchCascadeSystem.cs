@@ -229,14 +229,13 @@ namespace YarnResearch.Common.Systems
 		private const int ExtractinatorSampleSeed = 20260828;
 
 		private static readonly Dictionary<int, List<int>> RecipesConsumingItem = [];
-		private static readonly Dictionary<int, List<int>> StationItemTypesByTile = [];
 
-		// Every tile placed by an already-researched item, maintained incrementally as items are researched
-		// rather than derived from ResearchedTypes on demand - FreeCraftingSystem reads it from inside
-		// Recipe.FindRecipes, which runs on every inventory change.
+		// Every station tile an already-researched item provides (see StationTilesOf), maintained
+		// incrementally as items are researched rather than derived from ResearchedTypes on demand -
+		// FreeCraftingSystem reads it from inside Recipe.FindRecipes, which runs on every inventory change.
 		private static readonly HashSet<int> ResearchedStationTiles = [];
 
-		// Reverse of the above two: recipe.requiredTile -> recipe indices needing that tile as a station.
+		// recipe.requiredTile -> recipe indices needing that tile as a station.
 		// Needed because a recipe otherwise only gets rechecked when one of its *ingredients* is newly
 		// researched (via RecipesConsumingItem): a station becoming available on its own triggered nothing,
 		// so a recipe whose ingredients were already satisfied while its station was still unknown stayed
@@ -734,13 +733,42 @@ namespace YarnResearch.Common.Systems
 
 		private static void NoteStationTile(int type)
 		{
+			foreach (int tile in StationTilesOf(type))
+				ResearchedStationTiles.Add(tile);
+		}
+
+		// Every station tile owning type lets the player craft at: the tile it places plus every tile that one
+		// counts as (a Hellforge is also a Furnace), the same public mapping vanilla's AdjTiles applies to real
+		// proximity. Read live rather than cached, since TileCountsAs is only complete once recipe setup is.
+		private static IEnumerable<int> StationTilesOf(int type)
+		{
 			if (ContentSamples.ItemsByType.TryGetValue(type, out Item item) && item.createTile != -1)
-				ResearchedStationTiles.Add(item.createTile);
+			{
+				foreach (int tile in WithTileAliases(item.createTile))
+					yield return tile;
+			}
 
 			// A Replica places its own decorative tile, so the altar it stands in for has to be recorded
 			// explicitly - see AltarProxyItemTypes.
 			if (AltarProxyItemTypes.Contains(type))
-				ResearchedStationTiles.Add(TileID.DemonAltar);
+			{
+				foreach (int tile in WithTileAliases(TileID.DemonAltar))
+					yield return tile;
+			}
+		}
+
+		private static IEnumerable<int> WithTileAliases(int tile)
+		{
+			yield return tile;
+
+			if (tile < 0 || tile >= Recipe.TileCountsAs.Length || Recipe.TileCountsAs[tile] is not { } countsAs)
+				yield break;
+
+			foreach (int alias in countsAs)
+			{
+				if (alias >= 0)
+					yield return alias;
+			}
 		}
 
 		public static IReadOnlyCollection<int> ResearchedStations => ResearchedStationTiles;
@@ -1478,7 +1506,6 @@ namespace YarnResearch.Common.Systems
 		public override void PostAddRecipes()
 		{
 			RecipesConsumingItem.Clear();
-			StationItemTypesByTile.Clear();
 			RecipesRequiringTile.Clear();
 			RecipesRequiringCondition.Clear();
 			RecipesRequiringTorchGodsFavor.Clear();
@@ -1515,17 +1542,6 @@ namespace YarnResearch.Common.Systems
 						DecraftGatingConditions.Add(condition);
 				}
 			}
-
-			for (int type = 0; type < ItemLoader.ItemCount; type++)
-			{
-				if (!ContentSamples.ItemsByType.TryGetValue(type, out Item item) || item.createTile == -1)
-					continue;
-
-				AddToIndex(StationItemTypesByTile, item.createTile, type);
-			}
-
-			foreach (int type in AltarProxyItemTypes)
-				AddToIndex(StationItemTypesByTile, TileID.DemonAltar, type);
 		}
 
 		public override void OnWorldLoad()
@@ -1615,9 +1631,11 @@ namespace YarnResearch.Common.Systems
 					TryResearchRecipeOutput(recipeIndex);
 			}
 
-			if (ContentSamples.ItemsByType.TryGetValue(type, out Item stationItem) && stationItem.createTile != -1 &&
-				RecipesRequiringTile.TryGetValue(stationItem.createTile, out List<int> stationRecipes))
+			foreach (int tile in StationTilesOf(type))
 			{
+				if (!RecipesRequiringTile.TryGetValue(tile, out List<int> stationRecipes))
+					continue;
+
 				foreach (int recipeIndex in stationRecipes)
 					TryResearchRecipeOutput(recipeIndex);
 			}
@@ -1672,8 +1690,7 @@ namespace YarnResearch.Common.Systems
 			if (IsStandingAtStation(recipe.requiredTile))
 				return true;
 
-			return StationItemTypesByTile.TryGetValue(recipe.requiredTile, out List<int> itemTypes) &&
-				itemTypes.Any(ResearchedTypes.Contains);
+			return ResearchedStationTiles.Contains(recipe.requiredTile);
 		}
 
 		private static bool TorchGodsFavorSatisfied(Recipe recipe)
