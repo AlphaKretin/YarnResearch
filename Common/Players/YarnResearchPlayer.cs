@@ -1,7 +1,9 @@
+using Microsoft.Xna.Framework;
 using System;
 using System.Collections.Generic;
 using Terraria;
 using Terraria.GameContent.Creative;
+using Terraria.ID;
 using Terraria.ModLoader;
 using Terraria.ModLoader.IO;
 using YarnResearch.Common.Configs;
@@ -16,6 +18,11 @@ namespace YarnResearch.Common.Players
 		// never what the player means by "clear my inventory".
 		private const int MainInventoryStart = 10;
 		private const int MainInventoryEnd = 50;
+
+		// Tiles around the player's feet checked for shimmer liquid, roughly crafting-station reach.
+		private const int ShimmerReachX = 5;
+		private const int ShimmerReachUp = 4;
+		private const int ShimmerReachDown = 1;
 
 		// Last-seen type/stack per inventory slot, so a scan only checks slots that actually changed.
 		private int[] _snapshotTypes = Array.Empty<int>();
@@ -113,14 +120,28 @@ namespace YarnResearch.Common.Players
 		}
 
 		// Some seeds scatter shimmer puddles too small to count as the Aether biome, so liquid proximity counts
-		// too. adjShimmer is only refreshed by AdjTiles(), which vanilla calls from the crafting UI alone.
+		// too. Player.adjShimmer didn't pick up small puddles in testing, so the liquid is checked directly.
 		private bool IsNearShimmer()
 		{
 			if (Player.ZoneShimmer)
 				return true;
 
-			Player.AdjTiles();
-			return Player.adjShimmer;
+			Point feet = Player.Bottom.ToTileCoordinates();
+
+			for (int x = feet.X - ShimmerReachX; x <= feet.X + ShimmerReachX; x++)
+			{
+				for (int y = feet.Y - ShimmerReachUp; y <= feet.Y + ShimmerReachDown; y++)
+				{
+					if (!WorldGen.InWorld(x, y))
+						continue;
+
+					Tile tile = Main.tile[x, y];
+					if (tile.LiquidAmount > 0 && tile.LiquidType == LiquidID.Shimmer)
+						return true;
+				}
+			}
+
+			return false;
 		}
 
 		// Called from ResearchCascadeSystem.UpdateUI, not PostUpdate: the world-update path is skipped while
