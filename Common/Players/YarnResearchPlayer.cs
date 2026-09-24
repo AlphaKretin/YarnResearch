@@ -118,11 +118,8 @@ namespace YarnResearch.Common.Players
 			if (Player.whoAmI != Main.myPlayer)
 				return;
 
-			var config = ModContent.GetInstance<YarnResearchConfig>();
-
-			if (!ResearchCascadeSystem.ShimmerDiscovered && IsNearShimmer() &&
-				ResearchCascadeSystem.MarkShimmerDiscovered() && config.AutoResearchShimmerOutputs)
-				ResearchCascadeSystem.RunShimmerCatchupScan();
+			if (!ShimmerDiscovered && IsNearShimmer())
+				ResearchCascadeSystem.MarkShimmerDiscovered();
 
 			ResearchCascadeSystem.CheckLiveConditionEdges();
 		}

@@ -733,22 +733,23 @@ namespace YarnResearch.Common.Systems
 
 		// Idempotent - safe to call every tick while the player is near Shimmer. Sets the local player's
 		// saved "has seen Shimmer" flag regardless of the AutoResearchShimmerOutputs toggle, since finding
-		// Shimmer is not itself a research action. Returns true only on the call that actually flips the flag,
-		// so callers can gate a one-time catch-up scan on it.
-		public static bool MarkShimmerDiscovered()
+		// Shimmer is not itself a research action; only the catch-up scan it triggers is gated by the toggle.
+		public static void MarkShimmerDiscovered()
 		{
 			var modPlayer = Main.LocalPlayer.GetModPlayer<YarnResearchPlayer>();
 			if (modPlayer.ShimmerDiscovered)
-				return false;
+				return;
 
 			modPlayer.ShimmerDiscovered = true;
 			YarnNetwork.SendShimmerDiscovered();
-			return true;
+
+			if (ModContent.GetInstance<YarnResearchConfig>().AutoResearchShimmerOutputs)
+				RunShimmerCatchupScan();
 		}
 
 		// A no-op until the local player has discovered Shimmer. Callable both by the automatic path
-		// (immediately after first discovery, gated by the config toggle there) and directly by the manual
-		// trigger button, which bypasses the toggle.
+		// (on first discovery, gated by the config toggle there) and directly by the manual trigger button,
+		// which bypasses the toggle.
 		public static void RunShimmerCatchupScan()
 		{
 			if (!ShimmerDiscovered)
