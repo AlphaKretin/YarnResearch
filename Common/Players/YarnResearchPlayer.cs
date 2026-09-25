@@ -177,15 +177,16 @@ namespace YarnResearch.Common.Players
 				InfiniteBuffSystem.RegrantToggledBuffs(Player);
 		}
 
-		// Entering the world needs the same re-grant as a respawn: LoadWorldData restores the toggle
-		// bookkeeping but never calls AddBuff, so without this a buff toggled on in a previous session
-		// isn't actually present until the player dies once.
+		// Entering the world needs the same re-grant as a respawn: loading the player restores the toggle
+		// state but never calls AddBuff, so without this a buff toggled on in a previous session isn't
+		// actually present until the player dies once.
 		public override void OnEnterWorld()
 		{
 			if (Player.whoAmI != Main.myPlayer)
 				return;
 
 			InfiniteBuffSystem.RegrantToggledBuffs(Player);
+			InfiniteBuffSystem.ApplyDefaultsForResearched();
 			ResearchCascadeSystem.RunJoinCatchup();
 		}
 

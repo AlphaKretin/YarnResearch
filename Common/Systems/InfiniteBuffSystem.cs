@@ -7,9 +7,9 @@ using Terraria;
 using Terraria.ID;
 using Terraria.Localization;
 using Terraria.ModLoader;
-using Terraria.ModLoader.IO;
 using Terraria.UI;
 using YarnResearch.Common.Configs;
+using YarnResearch.Common.Players;
 using YarnResearch.Common.UI;
 
 namespace YarnResearch.Common.Systems
@@ -26,11 +26,11 @@ namespace YarnResearch.Common.Systems
 			Consumable,
 		}
 
-		// buffType -> explicit toggle state. Only buffTypes actually touched (player toggle, auto-default,
-		// tiering) get an entry - absence means "never decided", not "off". Covers potions/food and every
-		// whitelisted placed buff item - NOT banners or Garden Gnome, which have no buffType of their own
-		// and use bespoke per-tick proximity forcing instead (see ToggledBanners/_gardenGnomeInfinite).
-		private static readonly Dictionary<int, bool> InfiniteBuffTypes = [];
+		// Toggle state lives on the local player (InfiniteBuffPlayer). BuffStates only gets an entry for a
+		// buffType actually touched (player toggle, auto-default, tiering) - absence means "never decided",
+		// not "off". It covers potions/food and every whitelisted placed buff item - NOT banners or Garden
+		// Gnome, which have no buffType of their own and use bespoke per-tick proximity forcing instead.
+		private static InfiniteBuffPlayer State => Main.LocalPlayer.GetModPlayer<InfiniteBuffPlayer>();
 
 		// Curated whitelist of placed buff items that grant a normal Player.buffType buff - itemType ->
 		// buffType.
@@ -57,18 +57,17 @@ namespace YarnResearch.Common.Systems
 
 		// Banners are a bespoke case: every banner shares one generic BuffID.MonsterBanner buff, while the
 		// per-enemy damage bonus is a separate non-buff bool array (Main.SceneMetrics.NPCBannerBuff) that
-		// vanilla recomputes from tile proximity every tick. This stores which individual banner *items* are
-		// toggled on. The shared BuffID.MonsterBanner buff itself goes through the normal
-		// SetInfinite/TimeLeftDoesNotDecrease path, granted once when the set goes from empty to non-empty;
+		// vanilla recomputes from tile proximity every tick. BannerStates tracks individual banner *items*.
+		// The shared BuffID.MonsterBanner buff itself goes through the normal
+		// SetInfinite/TimeLeftDoesNotDecrease path, granted once when the first banner is toggled on;
 		// letting vanilla re-grant it from the forced proximity flags instead made the buff flicker on and
 		// off. ForceProximityFlags still forces the per-enemy damage-bonus flags every tick, which is read
 		// live at hit time rather than in a specific tick phase.
-		private static readonly HashSet<int> ToggledBanners = [];
-
+		//
 		// Garden Gnome's luck bonus is not a real Player.buffType/BuffID at all - no buff icon, implemented
 		// purely via the Player.HasGardenGnomeNearby proximity bool - so it gets the same per-tick forcing
 		// as banners, just a single bool instead of a set.
-		private static bool _gardenGnomeInfinite;
+		private static bool AnyBannerOn(InfiniteBuffPlayer state) => state.BannerStates.ContainsValue(true);
 
 		public static ModKeybind ToggleInfiniteBuffKeybind { get; private set; }
 
@@ -165,8 +164,8 @@ namespace YarnResearch.Common.Systems
 			return kind switch
 			{
 				BuffItemKind.None => false,
-				BuffItemKind.GardenGnome => _gardenGnomeInfinite,
-				BuffItemKind.Banner => ToggledBanners.Contains(item.type),
+				BuffItemKind.GardenGnome => State.GardenGnome == true,
+				BuffItemKind.Banner => State.BannerStates.GetValueOrDefault(item.type),
 				_ => IsInfinite(buffType),
 			};
 		}
@@ -197,15 +196,20 @@ namespace YarnResearch.Common.Systems
 		// tick, not just once at toggle time.
 		public static void ForceProximityFlags(Player player)
 		{
-			if (_gardenGnomeInfinite)
+			InfiniteBuffPlayer state = player.GetModPlayer<InfiniteBuffPlayer>();
+
+			if (state.GardenGnome == true)
 				player.HasGardenGnomeNearby = true;
 
-			if (ToggledBanners.Count == 0)
+			if (!AnyBannerOn(state))
 				return;
 
 			Main.SceneMetrics.hasBanner = true;
-			foreach (int itemType in ToggledBanners)
+			foreach (var (itemType, on) in state.BannerStates)
 			{
+				if (!on)
+					continue;
+
 				int bannerId = NPCLoader.BannerItemToNPC(itemType);
 				if (bannerId >= 0 && bannerId < Main.SceneMetrics.NPCBannerBuff.Length)
 					Main.SceneMetrics.NPCBannerBuff[bannerId] = true;
@@ -220,28 +224,29 @@ namespace YarnResearch.Common.Systems
 				return;
 
 			(BuffItemKind kind, int buffType) = Classify(item);
+			InfiniteBuffPlayer state = State;
 
 			switch (kind)
 			{
 				case BuffItemKind.GardenGnome:
-					_gardenGnomeInfinite = true;
+					state.GardenGnome ??= true;
 					break;
 
 				case BuffItemKind.Banner:
-					if (!ToggledBanners.Contains(item.type) &&
-						(ToggledBanners.Count > 0 || SetInfinite(Main.LocalPlayer, BuffID.MonsterBanner, on: true)))
-						ToggledBanners.Add(item.type);
+					if (!state.BannerStates.ContainsKey(item.type) &&
+						(AnyBannerOn(state) || SetInfinite(Main.LocalPlayer, BuffID.MonsterBanner, on: true)))
+						state.BannerStates[item.type] = true;
 					break;
 
 				case BuffItemKind.Placed:
-					if (!InfiniteBuffTypes.ContainsKey(buffType))
+					if (!state.BuffStates.ContainsKey(buffType))
 						SetInfinite(Main.LocalPlayer, buffType, on: true);
 					break;
 
 				case BuffItemKind.Consumable:
 					if (ItemID.Sets.IsFood[item.type])
 						HandleFoodResearched(buffType);
-					else if (!InfiniteBuffTypes.ContainsKey(buffType))
+					else if (!state.BuffStates.ContainsKey(buffType))
 						SetInfinite(Main.LocalPlayer, buffType, on: DefaultsOn(buffType));
 					break;
 			}
@@ -254,22 +259,26 @@ namespace YarnResearch.Common.Systems
 		private static bool DefaultsOn(int buffType) => buffType != BuffID.Tipsy;
 
 		// Well Fed comes in three escalating tiers that share no buffType - only the best researched tier
-		// should be held, so a better one turns the others off.
+		// should be held, so a better one turns the others off. A tier the player already decided on is left
+		// alone, like any other buffType.
 		private static void HandleFoodResearched(int buffType)
 		{
+			Dictionary<int, bool> states = State.BuffStates;
+			if (states.ContainsKey(buffType))
+				return;
+
 			int tierRank = Array.IndexOf(WellFedTierOrder, buffType);
 			if (tierRank < 0)
 			{
 				// Non-Well-Fed food: same default rule as potions.
-				if (!InfiniteBuffTypes.ContainsKey(buffType))
-					SetInfinite(Main.LocalPlayer, buffType, on: DefaultsOn(buffType));
+				SetInfinite(Main.LocalPlayer, buffType, on: DefaultsOn(buffType));
 				return;
 			}
 
 			int currentBestRank = -1;
 			for (int i = 0; i < WellFedTierOrder.Length; i++)
 			{
-				if (InfiniteBuffTypes.GetValueOrDefault(WellFedTierOrder[i]))
+				if (states.GetValueOrDefault(WellFedTierOrder[i]))
 					currentBestRank = i;
 			}
 
@@ -279,7 +288,7 @@ namespace YarnResearch.Common.Systems
 			SetInfinite(Main.LocalPlayer, buffType, on: true);
 			for (int i = 0; i < WellFedTierOrder.Length; i++)
 			{
-				if (i != tierRank && InfiniteBuffTypes.GetValueOrDefault(WellFedTierOrder[i]))
+				if (i != tierRank && states.GetValueOrDefault(WellFedTierOrder[i]))
 					SetInfinite(Main.LocalPlayer, WellFedTierOrder[i], on: false);
 			}
 		}
@@ -292,30 +301,32 @@ namespace YarnResearch.Common.Systems
 				return;
 
 			(BuffItemKind kind, int buffType) = Classify(hoverItem);
+			InfiniteBuffPlayer state = State;
 
 			switch (kind)
 			{
 				case BuffItemKind.GardenGnome:
-					_gardenGnomeInfinite = !_gardenGnomeInfinite;
+					state.GardenGnome = state.GardenGnome != true;
 					break;
 
 				case BuffItemKind.Banner:
 					// The shared buff is granted with the first toggled banner and dropped with the last.
-					if (ToggledBanners.Remove(hoverItem.type))
+					if (state.BannerStates.GetValueOrDefault(hoverItem.type))
 					{
-						if (ToggledBanners.Count == 0)
+						state.BannerStates[hoverItem.type] = false;
+						if (!AnyBannerOn(state))
 							SetInfinite(Main.LocalPlayer, BuffID.MonsterBanner, on: false);
 					}
-					else if (ToggledBanners.Count > 0 ||
+					else if (AnyBannerOn(state) ||
 						SetInfinite(Main.LocalPlayer, BuffID.MonsterBanner, on: true, isManualToggle: true))
 					{
-						ToggledBanners.Add(hoverItem.type);
+						state.BannerStates[hoverItem.type] = true;
 					}
 					break;
 
 				case BuffItemKind.Placed:
 				case BuffItemKind.Consumable:
-					SetInfinite(Main.LocalPlayer, buffType, on: !InfiniteBuffTypes.GetValueOrDefault(buffType),
+					SetInfinite(Main.LocalPlayer, buffType, on: !state.BuffStates.GetValueOrDefault(buffType),
 						isManualToggle: true);
 					break;
 			}
@@ -325,17 +336,19 @@ namespace YarnResearch.Common.Systems
 		// buff-cap safeguard, which banner toggling needs to know before adding to ToggledBanners.
 		public static bool SetInfinite(Player player, int buffType, bool on, bool isManualToggle = false)
 		{
+			Dictionary<int, bool> states = player.GetModPlayer<InfiniteBuffPlayer>().BuffStates;
+
 			if (on && IsBuffBarFull(player) && player.FindBuffIndex(buffType) < 0)
 			{
 				if (isManualToggle)
 					Main.NewText(_buffBarFullText.Value);
 				else
-					InfiniteBuffTypes.Remove(buffType);
+					states.Remove(buffType);
 
 				return false;
 			}
 
-			InfiniteBuffTypes[buffType] = on;
+			states[buffType] = on;
 			BuffID.Sets.TimeLeftDoesNotDecrease[buffType] = on;
 			Main.buffNoTimeDisplay[buffType] = on;
 
@@ -369,108 +382,66 @@ namespace YarnResearch.Common.Systems
 		// real DelBuff call on leaving proximity, which must not be read as a dismiss. BuffID.MonsterBanner
 		// is the one exception: it's actively held via TimeLeftDoesNotDecrease rather than being
 		// proximity-dependent once any banner is toggled on, so a DelBuff on it can only be a deliberate
-		// right-click dismiss, and clears every toggled banner to match.
+		// right-click dismiss, and turns every toggled banner off to match.
 		//
 		// Vanilla never wires proximity/aura buffs to the right-click-dismiss UI at all (right-clicking a
 		// toggled Cozy Fire never reaches Player.DelBuff), so the mod's own toggle hotkey is the only way to
 		// turn those off.
 		public static void HandleDismiss(int buffType)
 		{
-			if (!InfiniteBuffTypes.GetValueOrDefault(buffType))
+			InfiniteBuffPlayer state = State;
+			if (!state.BuffStates.GetValueOrDefault(buffType))
 				return;
 
 			if (buffType == BuffID.MonsterBanner)
 			{
-				ToggledBanners.Clear();
+				foreach (int itemType in state.BannerStates.Keys.ToArray())
+					state.BannerStates[itemType] = false;
 			}
 			else if (PlacedBuffItems.ContainsValue(buffType))
 			{
 				return;
 			}
 
-			InfiniteBuffTypes[buffType] = false;
+			state.BuffStates[buffType] = false;
 			BuffID.Sets.TimeLeftDoesNotDecrease[buffType] = false;
 			Main.buffNoTimeDisplay[buffType] = false;
 		}
 
-		// Re-grants every toggled-on buffType the player doesn't currently have. Called on respawn and on
-		// entering the world: LoadWorldData restores the bookkeeping (the dictionary,
-		// TimeLeftDoesNotDecrease, buffNoTimeDisplay) but never calls AddBuff. Banners/Garden Gnome need no
-		// handling here - ForceProximityFlags runs every tick regardless.
+		// Re-applies every toggled-on buffType: the process-global TimeLeftDoesNotDecrease/buffNoTimeDisplay
+		// flags (reset by ClearWorld) and the buff itself if the player doesn't have it. Banners/Garden Gnome
+		// need no handling here - ForceProximityFlags runs every tick regardless.
 		public static void RegrantToggledBuffs(Player player)
 		{
-			foreach (var pair in InfiniteBuffTypes.ToArray())
+			foreach (var (buffType, on) in player.GetModPlayer<InfiniteBuffPlayer>().BuffStates.ToArray())
 			{
-				if (!pair.Value)
-					continue;
-
-				if (player.FindBuffIndex(pair.Key) < 0)
-					SetInfinite(player, pair.Key, on: true);
+				if (on)
+					SetInfinite(player, buffType, on: true);
 			}
 		}
 
-		public static bool IsInfinite(int buffType) => InfiniteBuffTypes.GetValueOrDefault(buffType);
-
-		public override void SaveWorldData(TagCompound tag)
+		// Gives every researched buff item the player hasn't decided on the same default a fresh research
+		// would, so a character new to a world (or to this feature) starts with them on.
+		public static void ApplyDefaultsForResearched()
 		{
-			int[] onTypes = [.. InfiniteBuffTypes.Where(p => p.Value).Select(p => p.Key)];
-			int[] offTypes = [.. InfiniteBuffTypes.Where(p => !p.Value).Select(p => p.Key)];
-
-			if (onTypes.Length > 0)
-				tag["onTypes"] = onTypes;
-
-			if (offTypes.Length > 0)
-				tag["offTypes"] = offTypes;
-
-			if (ToggledBanners.Count > 0)
-				tag["toggledBanners"] = ToggledBanners.ToArray();
-
-			if (_gardenGnomeInfinite)
-				tag["gardenGnomeInfinite"] = true;
+			for (int type = 1; type < ItemLoader.ItemCount; type++)
+			{
+				if (ContentSamples.ItemsByType.TryGetValue(type, out Item item) && Classify(item).Kind != BuffItemKind.None)
+					HandleItemResearched(item);
+			}
 		}
 
-		public override void LoadWorldData(TagCompound tag)
-		{
-			InfiniteBuffTypes.Clear();
-			ToggledBanners.Clear();
-			_gardenGnomeInfinite = false;
+		public static bool IsInfinite(int buffType) => State.BuffStates.GetValueOrDefault(buffType);
 
-			if (tag.TryGet("onTypes", out int[] onTypes))
-			{
-				foreach (int buffType in onTypes)
-				{
-					InfiniteBuffTypes[buffType] = true;
-					BuffID.Sets.TimeLeftDoesNotDecrease[buffType] = true;
-					Main.buffNoTimeDisplay[buffType] = true;
-				}
-			}
-
-			if (tag.TryGet("offTypes", out int[] offTypes))
-			{
-				foreach (int buffType in offTypes)
-					InfiniteBuffTypes[buffType] = false;
-			}
-
-			if (tag.TryGet("toggledBanners", out int[] toggledBanners))
-			{
-				foreach (int itemType in toggledBanners)
-					ToggledBanners.Add(itemType);
-			}
-
-			_gardenGnomeInfinite = tag.ContainsKey("gardenGnomeInfinite");
-		}
-
+		// The toggle state belongs to the player and survives; only the process-global flags it set are
+		// reset, so they don't leak onto the next character or world.
 		public override void ClearWorld()
 		{
-			foreach (int buffType in InfiniteBuffTypes.Keys)
+			foreach (int buffType in State.BuffStates.Keys)
 			{
 				BuffID.Sets.TimeLeftDoesNotDecrease[buffType] = false;
 				Main.buffNoTimeDisplay[buffType] = false;
 			}
-
-			InfiniteBuffTypes.Clear();
-			ToggledBanners.Clear();
-			_gardenGnomeInfinite = false;
 		}
 	}
 }
