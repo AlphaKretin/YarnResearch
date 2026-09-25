@@ -1182,9 +1182,11 @@ namespace YarnResearch.Common.Systems
 			return false;
 		}
 
-		// Enumerates everything a crate/bag could possibly contain, using the same ReportDroprates
+		// Enumerates everything a crate/bag could contain right now, using the same ReportDroprates
 		// mechanism the vanilla Bestiary "possible drops" panel uses for NPCs - no RNG rolled, nothing
-		// actually dropped. Coins and other unresearchable items are filtered out by the caller.
+		// actually dropped. ReportDroprates lists every branch regardless of world state (both evils' ores,
+		// hardmode-only loot), so drops are filtered by their conditions the way the Bestiary does. Coins and
+		// other unresearchable items are filtered out by the caller.
 		private static IEnumerable<int> GetPossibleCrateContents(int crateType)
 		{
 			using var _ = CascadeProfile.Time(CascadeProfile.Phase.CrateDropRules);
@@ -1195,7 +1197,10 @@ namespace YarnResearch.Common.Systems
 			foreach (IItemDropRule rule in Main.ItemDropsDB.GetRulesForItemID(crateType))
 				rule.ReportDroprates(drops, chainFeed);
 
-			return drops.Select(d => d.itemId).Distinct();
+			return drops
+				.Where(d => d.conditions == null || d.conditions.All(c => c.CanShowItemDropInUI()))
+				.Select(d => d.itemId)
+				.Distinct();
 		}
 
 		private static void ProcessCrateContents(int type)
