@@ -13,16 +13,21 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 	{
 		private static readonly Vector2 DropShadowOffset = new(2f, 2f);
 
-		private readonly Asset<Texture2D> _icon;
-		private readonly Rectangle _sourceRect;
-		private readonly float _drawScale;
-		private readonly bool _drawDropShadow;
+		private Asset<Texture2D> _icon;
+		private Rectangle _sourceRect;
+		private float _drawScale;
+		private bool _drawDropShadow;
 
 		// Mutable so a caller can retint at runtime, e.g. to show an "are you sure" state on a
 		// destructive action.
 		public Color IconTint { get; set; } = Color.White;
 
 		public ItemIconButton(YarnIcon icon)
+		{
+			SetIcon(icon);
+		}
+
+		public void SetIcon(YarnIcon icon)
 		{
 			_icon = icon.Texture;
 			_sourceRect = icon.SourceRectangle;

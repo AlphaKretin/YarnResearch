@@ -107,7 +107,8 @@ TeamCatchupPower.HoverText: Sync With Teammate Research
 
 FreeCraftingTogglePower: {
 	HoverText: Craft Anywhere Disabled
-	ActiveHoverText: Craft Anywhere Enabled
+	InventoryHoverText: Craft Anywhere From Inventory
+	ResearchHoverText: Craft Anywhere From Research
 }
 
 SacrificeActionPower: {

@@ -7,6 +7,15 @@ using YarnResearch.Common.Players;
 
 namespace YarnResearch.Common.Systems
 {
+	public enum FreeCraftingMode
+	{
+		Off,
+		// Researched stations and proximity Conditions count; ingredients are sourced as vanilla.
+		Inventory,
+		// As Inventory, and researched items also count as ingredients.
+		Research,
+	}
+
 	// While the free-crafting toggle is on, every crafting interface behaves as if the player were standing
 	// next to every crafting station they've researched, and in every biome/liquid whose Condition proxy
 	// they've researched. Ingredient sourcing is untouched - inventory plus nearby chests, exactly as vanilla.
@@ -59,24 +68,31 @@ namespace YarnResearch.Common.Systems
 			LogUnfakeableProxiedConditions();
 		}
 
-		public static bool Enabled
+		public static FreeCraftingMode Mode
 		{
 			get
 			{
 				if (Main.gameMenu || Main.LocalPlayer == null || !Main.LocalPlayer.active)
-					return false;
+					return FreeCraftingMode.Off;
 
-				return Main.LocalPlayer.GetModPlayer<YarnResearchPlayer>().FreeCraftingEnabled;
+				return Main.LocalPlayer.GetModPlayer<YarnResearchPlayer>().FreeCraftingMode;
 			}
 		}
 
-		public static void Toggle()
+		public static bool Enabled => Mode != FreeCraftingMode.Off;
+
+		public static void Cycle()
 		{
 			var modPlayer = Main.LocalPlayer.GetModPlayer<YarnResearchPlayer>();
-			modPlayer.FreeCraftingEnabled = !modPlayer.FreeCraftingEnabled;
+			modPlayer.FreeCraftingMode = modPlayer.FreeCraftingMode switch
+			{
+				FreeCraftingMode.Off => FreeCraftingMode.Inventory,
+				FreeCraftingMode.Inventory => FreeCraftingMode.Research,
+				_ => FreeCraftingMode.Off,
+			};
 
 			// Rebuild the available-recipe list immediately rather than relying on whatever makes vanilla
-			// refresh it next, so the crafting menu reflects the toggle on the same click.
+			// refresh it next, so the crafting menu reflects the new mode on the same click.
 			Recipe.UpdateRecipeList();
 		}
 

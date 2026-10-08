@@ -69,9 +69,9 @@ namespace YarnResearch.Common.Players
 			return false;
 		}
 
-		// Free-crafting toggle (see FreeCraftingSystem) - a property of the character, not the world, so a
+		// Free-crafting mode (see FreeCraftingSystem) - a property of the character, not the world, so a
 		// player who wants it on keeps it on everywhere.
-		public bool FreeCraftingEnabled { get; set; }
+		public FreeCraftingMode FreeCraftingMode { get; set; }
 
 		// Per character rather than per world so that teams share it and independent players on the same
 		// server each have to find Shimmer themselves, matching how vanilla research is shared.
@@ -79,8 +79,8 @@ namespace YarnResearch.Common.Players
 
 		public override void SaveData(TagCompound tag)
 		{
-			if (FreeCraftingEnabled)
-				tag["FreeCrafting"] = true;
+			if (FreeCraftingMode != FreeCraftingMode.Off)
+				tag["FreeCraftingMode"] = (int)FreeCraftingMode;
 
 			if (ShimmerDiscovered)
 				tag["ShimmerDiscovered"] = true;
@@ -101,7 +101,12 @@ namespace YarnResearch.Common.Players
 
 		public override void LoadData(TagCompound tag)
 		{
-			FreeCraftingEnabled = tag.ContainsKey("FreeCrafting");
+			// "FreeCrafting" is the on/off flag saved before the modes existed; on meant what Inventory does.
+			if (tag.TryGet("FreeCraftingMode", out int savedMode) && Enum.IsDefined((FreeCraftingMode)savedMode))
+				FreeCraftingMode = (FreeCraftingMode)savedMode;
+			else
+				FreeCraftingMode = tag.ContainsKey("FreeCrafting") ? FreeCraftingMode.Inventory : FreeCraftingMode.Off;
+
 			ShimmerDiscovered = tag.ContainsKey("ShimmerDiscovered");
 
 			// Defaults saved before groups existed were keyed by a single PrefixCategory, which no longer

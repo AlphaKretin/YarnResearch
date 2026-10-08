@@ -65,22 +65,49 @@ namespace YarnResearch.Common.UI.ManualTriggersUI
 		}
 	}
 
-	// The one power here that toggles rather than acting once - see AYarnTogglePower.
+	// The one power here that holds a state rather than acting once - see AYarnTogglePower. It has two
+	// "on" states, which share the lit look and are told apart by icon.
 	public class FreeCraftingTogglePower : AYarnTogglePower
 	{
 		private static readonly LocalizedText HoverTextValue = ModContent.GetInstance<YarnResearch>().GetLocalization($"{nameof(FreeCraftingTogglePower)}.HoverText");
-		private static readonly LocalizedText ActiveHoverTextValue = ModContent.GetInstance<YarnResearch>().GetLocalization($"{nameof(FreeCraftingTogglePower)}.ActiveHoverText");
+		private static readonly LocalizedText InventoryHoverTextValue = ModContent.GetInstance<YarnResearch>().GetLocalization($"{nameof(FreeCraftingTogglePower)}.InventoryHoverText");
+		private static readonly LocalizedText ResearchHoverTextValue = ModContent.GetInstance<YarnResearch>().GetLocalization($"{nameof(FreeCraftingTogglePower)}.ResearchHoverText");
 
-		protected override YarnIcon Icon => YarnIcons.FreeCrafting;
-		public override LocalizedText HoverText => FreeCraftingSystem.Enabled ? ActiveHoverTextValue : HoverTextValue;
+		private ItemIconButton _styledIconElement;
+		private FreeCraftingMode _shownMode;
+
+		protected override YarnIcon Icon => IconFor(FreeCraftingSystem.Mode);
+
+		public override LocalizedText HoverText => FreeCraftingSystem.Mode switch
+		{
+			FreeCraftingMode.Inventory => InventoryHoverTextValue,
+			FreeCraftingMode.Research => ResearchHoverTextValue,
+			_ => HoverTextValue,
+		};
 
 		protected override bool IsOn => FreeCraftingSystem.Enabled;
 
 		protected override void DoAction()
 		{
-			FreeCraftingSystem.Toggle();
+			FreeCraftingSystem.Cycle();
 			SoundEngine.PlaySound(SoundID.MenuTick);
 		}
+
+		public override void PerTickUpdate()
+		{
+			base.PerTickUpdate();
+
+			FreeCraftingMode mode = FreeCraftingSystem.Mode;
+			if (IconElement == null || (IconElement == _styledIconElement && mode == _shownMode))
+				return;
+
+			IconElement.SetIcon(IconFor(mode));
+			_styledIconElement = IconElement;
+			_shownMode = mode;
+		}
+
+		private static YarnIcon IconFor(FreeCraftingMode mode) =>
+			mode == FreeCraftingMode.Research ? YarnIcons.FreeCraftingResearch : YarnIcons.FreeCrafting;
 	}
 
 	// Destructive/irreversible, so the first click only arms a short confirm window (see ConfirmGuard) -
