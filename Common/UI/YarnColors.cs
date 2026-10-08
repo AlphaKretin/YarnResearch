@@ -7,8 +7,7 @@ namespace YarnResearch.Common.UI
 	// stay where they are used - this is only for the mod's own choices.
 	public static class YarnColors
 	{
-		// Slot tints in the Journey duplication grid, drawn by SlotTint. Deliberately far apart in hue,
-		// since a slot only ever shows one of them and the tint is the only thing distinguishing the states.
+		// Slot tints in the Journey duplication grid, drawn by SlotTint.
 		public static readonly Color InfiniteBuffSlot = Color.LightGreen;
 
 		// The slot the prefix picker popup is currently open for.

@@ -42,6 +42,9 @@ namespace YarnResearch.Common.UI.PrefixPickerUI
 			// No public API exposes a prefix's value multiplier directly (ModPrefix.ModifyValue only runs as
 			// a side effect of actually applying the prefix), so GetPrefixValue rolls it onto a scratch item
 			// of the same type and reads back the resulting Item.value.
+			if (results.Count == 0)
+				return results;
+
 			results.Sort((a, b) => b.Value.CompareTo(a.Value));
 
 			// Pinned to the top rather than sorted in by value: it's the "clear what's set here" row, not a
