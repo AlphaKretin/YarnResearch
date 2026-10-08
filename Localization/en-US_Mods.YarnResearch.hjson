@@ -89,6 +89,7 @@ ResearchCascadeSystem: {
 		Craftable: Auto-Crafted
 		BiomeTorch: Auto-Swapped
 		Extractinator: Auto-Extracted
+		Digestion: Auto-Digested
 		Shimmer: Auto-Shimmered
 		Crate: Auto-Looted
 		Shop: Auto-Purchased

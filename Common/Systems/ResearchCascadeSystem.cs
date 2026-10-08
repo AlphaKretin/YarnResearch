@@ -32,6 +32,7 @@ namespace YarnResearch.Common.Systems
 			Craftable,
 			BiomeTorch,
 			Extractinator,
+			Digestion,
 			Shimmer,
 			Crate,
 			Shop,
@@ -915,7 +916,26 @@ namespace YarnResearch.Common.Systems
 		{
 			ProcessBiomeTorchVariants(type);
 			ProcessExtractinatorOutputs(type);
+			ProcessDigestion(type);
 		}
+
+		// Sitting on a toilet while Well Fed produces Poo, so owning a toilet and any such food is owning Poo.
+		private static void ProcessDigestion(int type)
+		{
+			if (!IsUnresearchedAndResearchable(ItemID.PoopBlock) ||
+				!ResearchedStationTiles.Contains(TileID.Toilets) ||
+				!ContentSamples.ItemsByType.TryGetValue(type, out Item item))
+				return;
+
+			bool completesPair = GrantsWellFed(item) ||
+				(item.createTile == TileID.Toilets && ResearchedTypes.Any(researched =>
+					ContentSamples.ItemsByType.TryGetValue(researched, out Item food) && GrantsWellFed(food)));
+
+			if (completesPair)
+				ResearchWithOrigin(ItemID.PoopBlock, ResearchOrigin.Digestion);
+		}
+
+		private static bool GrantsWellFed(Item item) => item.buffType > 0 && BuffID.Sets.IsWellFed[item.buffType];
 
 		private static void RunCatchupScan(Mechanism mechanism, Action<int> processType, string logLabel)
 		{
