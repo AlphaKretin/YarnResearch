@@ -37,9 +37,9 @@ namespace YarnResearch.Common.Systems
 		// switched on by this system.
 		private static readonly HashSet<int> FlaggedBuffs = new();
 
-		// Curated whitelist of placed buff items that grant a normal Player.buffType buff - itemType ->
-		// buffType.
-		private static readonly Dictionary<int, int> PlacedBuffItems = new() {
+		// Curated whitelists of non-potion buff items that grant a normal Player.buffType buff - itemType ->
+		// buffType. Activated buffs come from using the item and can be right-click dismissed like a potion.
+		private static readonly Dictionary<int, int> ActivatedBuffItems = new() {
 			{ ItemID.AmmoBox, BuffID.AmmoBox },
 			{ ItemID.BewitchingTable, BuffID.Bewitched },
 			{ ItemID.CrystalBall, BuffID.Clairvoyance },
@@ -47,15 +47,20 @@ namespace YarnResearch.Common.Systems
 			{ ItemID.SharpeningStation, BuffID.Sharpened },
 			{ ItemID.WarTable, BuffID.WarTable },
 			{ ItemID.DeadCellsPotionStation, BuffID.DeadCellsPotionStation },
+			{ ItemID.BottledHoney, BuffID.Honey },
+			{ ItemID.HoneyBucket, BuffID.Honey },
+			{ ItemID.BottomlessHoneyBucket, BuffID.Honey },
+		};
+
+		// Aura buffs come from tile proximity. They can't be right-click dismissed, and vanilla removes them
+		// itself on leaving proximity.
+		private static readonly Dictionary<int, int> AuraBuffItems = new() {
 			{ ItemID.CatBast, BuffID.CatBast },
 			{ ItemID.Campfire, BuffID.Campfire },
 			{ ItemID.Fireplace, BuffID.Campfire },
 			{ ItemID.HeartLantern, BuffID.HeartLamp },
 			{ ItemID.StarinaBottle, BuffID.StarInBottle },
 			{ ItemID.Sunflower, BuffID.Sunflower },
-			{ ItemID.BottledHoney, BuffID.Honey },
-			{ ItemID.HoneyBucket, BuffID.Honey },
-			{ ItemID.BottomlessHoneyBucket, BuffID.Honey },
 		};
 
 		private static readonly int[] WellFedTierOrder = { BuffID.WellFed, BuffID.WellFed2, BuffID.WellFed3 };
@@ -170,7 +175,8 @@ namespace YarnResearch.Common.Systems
 			if (IsBannerItem(item.type))
 				return (BuffItemKind.Banner, BuffID.MonsterBanner);
 
-			if (PlacedBuffItems.TryGetValue(item.type, out int placedBuffType))
+			if (ActivatedBuffItems.TryGetValue(item.type, out int placedBuffType) ||
+				AuraBuffItems.TryGetValue(item.type, out placedBuffType))
 				return (BuffItemKind.Placed, placedBuffType);
 
 			// item.consumable, not item.potion: item.potion only marks items that inflict Potion Sickness,
@@ -420,15 +426,14 @@ namespace YarnResearch.Common.Systems
 			return true;
 		}
 
-		// Only potion/food buffs auto-untoggle on removal - a placed-item buff can legitimately expire via a
-		// real DelBuff call on leaving proximity, which must not be read as a dismiss. BuffID.MonsterBanner
-		// is the one exception: it's actively held via TimeLeftDoesNotDecrease rather than being
-		// proximity-dependent once any banner is toggled on, so a DelBuff on it can only be a deliberate
-		// right-click dismiss, and turns every toggled banner off to match.
+		// A removed buff untoggles itself, except for aura buffs: those can legitimately expire via a real
+		// DelBuff call on leaving proximity, which must not be read as a dismiss. Vanilla never wires them to
+		// the right-click-dismiss UI either (right-clicking a toggled Cozy Fire never reaches Player.DelBuff),
+		// so the mod's own toggle hotkey is the only way to turn those off.
 		//
-		// Vanilla never wires proximity/aura buffs to the right-click-dismiss UI at all (right-clicking a
-		// toggled Cozy Fire never reaches Player.DelBuff), so the mod's own toggle hotkey is the only way to
-		// turn those off.
+		// BuffID.MonsterBanner is held via TimeLeftDoesNotDecrease rather than being proximity-dependent once
+		// any banner is toggled on, so a DelBuff on it can only be a deliberate right-click dismiss, and turns
+		// every toggled banner off to match.
 		public static void HandleDismiss(int buffType)
 		{
 			InfiniteBuffPlayer state = State;
@@ -440,7 +445,7 @@ namespace YarnResearch.Common.Systems
 				foreach (int itemType in state.BannerStates.Keys.ToArray())
 					state.BannerStates[itemType] = false;
 			}
-			else if (PlacedBuffItems.ContainsValue(buffType))
+			else if (AuraBuffItems.ContainsValue(buffType))
 			{
 				return;
 			}
