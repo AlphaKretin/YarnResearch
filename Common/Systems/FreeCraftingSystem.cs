@@ -18,7 +18,9 @@ namespace YarnResearch.Common.Systems
 
 	// While the free-crafting toggle is on, every crafting interface behaves as if the player were standing
 	// next to every crafting station they've researched, and in every biome/liquid whose Condition proxy
-	// they've researched. Ingredient sourcing is untouched - inventory plus nearby chests, exactly as vanilla.
+	// they've researched. In Inventory mode ingredient sourcing is untouched - inventory plus nearby chests,
+	// exactly as vanilla. In Research mode every researched item is additionally an ingredient the player
+	// always has and never spends.
 	//
 	// Recipe.FindRecipes decides availability from exactly two things (Recipe.UpdateRecipeList, per the
 	// public patches repo): recipe.PlayerMeetsEnvironmentConditions(player), which reads player.adjTile, and
@@ -63,9 +65,76 @@ namespace YarnResearch.Common.Systems
 			On_Recipe.UpdateRecipeList -= ApplyFreeCrafting;
 		}
 
+		// Recipes carry their consumption rules individually, with no hook that covers all of them at once.
+		public override void PostAddRecipes()
+		{
+			for (int i = 0; i < Recipe.numRecipes; i++)
+				Main.recipe[i].AddConsumeIngredientCallback(KeepResearchedIngredients);
+		}
+
 		public override void PostSetupRecipes()
 		{
 			LogUnfakeableProxiedConditions();
+		}
+
+		// Large enough to cover any recipe's requirement, small enough that adding it to a carried stack in
+		// the game's owned-item totals can't overflow.
+		private const int ResearchedMaterialStack = 9999;
+
+		private static readonly List<Item> ResearchedMaterials = [];
+		private static int _researchedMaterialsVersion = -1;
+
+		// One stand-in stack per researched item, offered to the recipe list as extra crafting materials
+		// while the mode is Research. Null otherwise, which the caller treats as "nothing to add".
+		public static IEnumerable<Item> GetResearchedMaterials(out ModPlayer.ItemConsumedCallback itemConsumedCallback)
+		{
+			itemConsumedCallback = null;
+
+			if (Mode != FreeCraftingMode.Research)
+				return null;
+
+			if (_researchedMaterialsVersion != ResearchCascadeSystem.ResearchedTypesVersion)
+			{
+				ResearchedMaterials.Clear();
+				foreach (int type in ResearchCascadeSystem.ResearchedItemTypes)
+					ResearchedMaterials.Add(new Item(type, ResearchedMaterialStack));
+
+				_researchedMaterialsVersion = ResearchCascadeSystem.ResearchedTypesVersion;
+			}
+
+			// KeepResearchedIngredients normally stops a craft before it reaches these stand-ins. Another
+			// mod's callback running after it can put the amount back, and the craft then drains a stand-in
+			// in place, so the list is rebuilt rather than left short.
+			itemConsumedCallback = (_, _) => _researchedMaterialsVersion = -1;
+			return ResearchedMaterials;
+		}
+
+		// The same callback runs for Shimmer decrafting, where the amount is what the player gets back.
+		private static void KeepResearchedIngredients(Recipe recipe, int type, ref int amount, bool isDecrafting)
+		{
+			if (isDecrafting || amount <= 0 || Mode != FreeCraftingMode.Research)
+				return;
+
+			if (ResearchCascadeSystem.IsResearched(type) || ResearchedGroupMember(recipe, type))
+				amount = 0;
+		}
+
+		// An "any iron bar" ingredient is listed under one member's type but is met by any of them.
+		private static bool ResearchedGroupMember(Recipe recipe, int type)
+		{
+			foreach (int groupId in recipe.acceptedGroups)
+			{
+				if (!RecipeGroup.recipeGroups.TryGetValue(groupId, out RecipeGroup group) || !group.ValidItems.Contains(type))
+					continue;
+
+				foreach (int member in group.ValidItems)
+				{
+					if (ResearchCascadeSystem.IsResearched(member))
+						return true;
+				}
+			}
+
+			return false;
 		}
 
 		public static FreeCraftingMode Mode

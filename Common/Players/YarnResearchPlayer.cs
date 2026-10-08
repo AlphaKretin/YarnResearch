@@ -73,6 +73,9 @@ namespace YarnResearch.Common.Players
 		// player who wants it on keeps it on everywhere.
 		public FreeCraftingMode FreeCraftingMode { get; set; }
 
+		public override IEnumerable<Item> AddMaterialsForCrafting(out ItemConsumedCallback itemConsumedCallback) =>
+			FreeCraftingSystem.GetResearchedMaterials(out itemConsumedCallback);
+
 		// Per character rather than per world so that teams share it and independent players on the same
 		// server each have to find Shimmer themselves, matching how vanilla research is shared.
 		public bool ShimmerDiscovered { get; set; }

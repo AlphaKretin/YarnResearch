@@ -66,6 +66,12 @@ namespace YarnResearch.Common.Systems
 
 		private static readonly HashSet<int> ResearchedTypes = [];
 
+		public static IReadOnlyCollection<int> ResearchedItemTypes => ResearchedTypes;
+
+		// Moves whenever ResearchedTypes changes, so a reader caching something derived from the set can
+		// tell it is out of date without comparing contents.
+		public static int ResearchedTypesVersion { get; private set; }
+
 		// Types currently mid-ResearchItem for a given mechanism, so the synchronous re-entry into
 		// HandleResearched can tell which mechanism unlocked them. Indexed by ResearchOrigin.
 		private static readonly HashSet<int>[] PendingOrigins =
@@ -1446,7 +1452,8 @@ namespace YarnResearch.Common.Systems
 			CascadeProfile.Report();
 		}
 
-		// Set when research adds something free crafting reads (a station, or a Condition proxy).
+		// Set when research adds something free crafting reads (a station, a Condition proxy, or in Research
+		// mode any item at all).
 		private static bool _freeCraftingStale;
 
 		// Free crafting only applies inside Recipe.UpdateRecipeList, which vanilla runs on inventory changes -
@@ -1581,6 +1588,7 @@ namespace YarnResearch.Common.Systems
 		public override void OnWorldLoad()
 		{
 			ResearchedTypes.Clear();
+			ResearchedTypesVersion++;
 			ResearchedStationTiles.Clear();
 			ClearDeferredNotifications();
 
@@ -1756,10 +1764,14 @@ namespace YarnResearch.Common.Systems
 			if (!ResearchedTypes.Add(type))
 				return;
 
+			ResearchedTypesVersion++;
+
 			int stationCount = ResearchedStationTiles.Count;
 			NoteStationTile(type);
 
-			if (ResearchedStationTiles.Count != stationCount || ConditionsByProxyItemType.ContainsKey(type))
+			// In Research mode every researched item is an ingredient, so any new research can open a recipe.
+			if (ResearchedStationTiles.Count != stationCount || ConditionsByProxyItemType.ContainsKey(type) ||
+				FreeCraftingSystem.Mode == FreeCraftingMode.Research)
 				_freeCraftingStale = true;
 
 			queue.Enqueue(type);
