@@ -129,6 +129,18 @@ namespace YarnResearch.Common.Systems
 			SoundEngine.PlaySound(SoundID.Grab);
 		}
 
+		// Setting a default changes nothing on screen by itself, so it borrows the feedback of a real
+		// reforge: the item's new name popping up over the player, and the anvil sound.
+		public static void PlayDefaultPrefixFeedback(int itemType, int prefixId)
+		{
+			var result = new Item();
+			result.SetDefaults(itemType);
+			result.Prefix(prefixId);
+
+			PopupText.NewText(PopupTextContext.ItemReforge, result, Main.LocalPlayer.Center, result.stack, noStack: true);
+			SoundEngine.PlaySound(SoundID.Item37);
+		}
+
 		private static void DrawSlotOverlay(Item item, SpriteBatch spriteBatch, Vector2 center, float iconSize)
 		{
 			// Only the slot the picker is currently open for is marked. Having a default prefix isn't marked

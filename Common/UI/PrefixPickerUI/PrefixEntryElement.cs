@@ -54,6 +54,7 @@ namespace YarnResearch.Common.UI.PrefixPickerUI
 		{
 			base.LeftClick(evt);
 			Main.LocalPlayer.GetModPlayer<YarnResearchPlayer>().SetDefaultPrefix(PrefixGroup.OfType(_itemType), _candidate.PrefixId);
+			PrefixPickerSystem.PlayDefaultPrefixFeedback(_itemType, _candidate.PrefixId);
 			_onSelected();
 		}
 
