@@ -787,14 +787,25 @@ namespace YarnResearch.Common.Systems
 		public static bool ShimmerDiscovered => Main.LocalPlayer.GetModPlayer<YarnResearchPlayer>().ShimmerDiscovered;
 
 		// Researches type, tagging it with the mechanism responsible for the duration of the call.
-		// CreativeUI.ResearchItem synchronously re-enters HandleResearched via GlobalItem.OnResearched,
-		// which reads the tag back off to pick the right notification queue.
+		// SacrificeItem synchronously re-enters HandleResearched via GlobalItem.OnResearched, which reads
+		// the tag back off to pick the right notification queue.
+		//
+		// Not CreativeUI.ResearchItem: that sacrifices a stack of the full research count and lets the
+		// excess spawn, which hands a partially researched item's already-sacrificed copies back to the
+		// player.
 		private static void ResearchWithOrigin(int type, ResearchOrigin origin)
 		{
+			int? remaining = CreativeUI.GetSacrificesRemaining(type);
+			if (remaining is not > 0)
+				return;
+
 			PendingOrigins[(int)origin].Add(type);
 
 			using (CascadeProfile.Time(CascadeProfile.Phase.ResearchItem))
-				CreativeUI.ResearchItem(type);
+			{
+				var fodder = new Item(type, remaining.Value);
+				Main.CreativeMenu.SacrificeItem(ref fodder, out _, spawnExcessItem: false, onlySacrificeIfItWouldFinishResearch: false);
+			}
 
 			PendingOrigins[(int)origin].Remove(type);
 		}
