@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Terraria;
+using Terraria.GameContent;
 using Terraria.ID;
 using Terraria.Localization;
 using Terraria.ModLoader;
@@ -73,12 +74,16 @@ namespace YarnResearch.Common.Systems
 		// as banners, just a single bool instead of a set.
 		private static bool AnyBannerOn(InfiniteBuffPlayer state) => state.BannerStates.ContainsValue(true);
 
+		// Vanilla banner itemType -> banner ID. Vanilla only maps the other way (BannerSystem.BannerToItem).
+		private static Dictionary<int, int> _vanillaBannerIds;
+
 		public static ModKeybind ToggleInfiniteBuffKeybind { get; private set; }
 
 		private static LocalizedText _buffBarFullText;
 
 		private static On_Player.hook_DelBuff _delBuffHook;
 		private static On_ItemSlot.hook_DrawItemIcon _drawItemIconHook;
+		private static On_Main.hook_UpdateSceneMetrics _updateSceneMetricsHook;
 
 		public override void Load()
 		{
@@ -106,11 +111,34 @@ namespace YarnResearch.Common.Systems
 				return orig(item, context, spriteBatch, screenPositionForItemCenter, scale, sizeLimit, environmentColor, itemFade, flip);
 			};
 			On_ItemSlot.DrawItemIcon += _drawItemIconHook;
+
+			// The scene scan runs from Draw (through the lighting engine) rather than the update tick, and
+			// resets the banner flags to real tile proximity. Anything drawn later that frame - the Monster
+			// Banner buff tooltip's enemy list - would see them cleared until the next tick's forcing.
+			_updateSceneMetricsHook = orig =>
+			{
+				orig();
+
+				if (!Main.gameMenu)
+					ForceProximityFlags(Main.LocalPlayer);
+			};
+			On_Main.UpdateSceneMetrics += _updateSceneMetricsHook;
+		}
+
+		public override void PostSetupContent()
+		{
+			_vanillaBannerIds = new Dictionary<int, int>();
+			for (int bannerId = 1; bannerId < BannerSystem.MaxBannerTypes; bannerId++)
+			{
+				if (BannerSystem.BannerToNPC(bannerId) != NPCID.None)
+					_vanillaBannerIds[BannerSystem.BannerToItem(bannerId)] = bannerId;
+			}
 		}
 
 		public override void Unload()
 		{
 			ToggleInfiniteBuffKeybind = null;
+			_vanillaBannerIds = null;
 
 			if (_delBuffHook != null)
 			{
@@ -122,6 +150,12 @@ namespace YarnResearch.Common.Systems
 			{
 				On_ItemSlot.DrawItemIcon -= _drawItemIconHook;
 				_drawItemIconHook = null;
+			}
+
+			if (_updateSceneMetricsHook != null)
+			{
+				On_Main.UpdateSceneMetrics -= _updateSceneMetricsHook;
+				_updateSceneMetricsHook = null;
 			}
 		}
 
@@ -189,15 +223,20 @@ namespace YarnResearch.Common.Systems
 
 		// ItemID.Sets.BannerStrength[type].Enabled is NOT an "is this item a banner" flag - it's true for
 		// every item, gating the per-item damage-scaling curve override - so the actual banner check goes
-		// through NPCLoader's own item<->banner mapping, the same one ModBannerTile.NearbyEffects uses.
+		// through the item -> banner ID mappings. NPCLoader.BannerItemToNPC only knows modded banners (whose
+		// banner ID is their NPC type), so vanilla ones come from _vanillaBannerIds.
 		// Returns -1 for anything that isn't a banner item.
-		private static bool IsBannerItem(int itemType) => NPCLoader.BannerItemToNPC(itemType) >= 0;
+		private static int BannerIdForItem(int itemType) =>
+			_vanillaBannerIds != null && _vanillaBannerIds.TryGetValue(itemType, out int bannerId)
+				? bannerId
+				: NPCLoader.BannerItemToNPC(itemType);
 
-		// Called every tick from YarnResearchPlayer.PreModifyLuck, after vanilla's own tile-proximity scan
-		// has run for this tick - re-forces the bespoke proximity flags for banners/Garden Gnome so
-		// vanilla's own buff-granting and luck calculation (which read these later the same tick) see them
-		// as active. Vanilla resets both to their real proximity values every tick, so this must run every
-		// tick, not just once at toggle time.
+		private static bool IsBannerItem(int itemType) => BannerIdForItem(itemType) >= 0;
+
+		// Re-forces the bespoke proximity flags for banners/Garden Gnome so vanilla's own buff-granting, luck
+		// calculation and banner tooltip see them as active. Vanilla keeps resetting them to their real
+		// proximity values, so this is called both every tick from YarnResearchPlayer.PreModifyLuck and
+		// straight after each scene scan, not just once at toggle time.
 		public static void ForceProximityFlags(Player player)
 		{
 			InfiniteBuffPlayer state = player.GetModPlayer<InfiniteBuffPlayer>();
@@ -214,7 +253,7 @@ namespace YarnResearch.Common.Systems
 				if (!on)
 					continue;
 
-				int bannerId = NPCLoader.BannerItemToNPC(itemType);
+				int bannerId = BannerIdForItem(itemType);
 				if (bannerId >= 0 && bannerId < Main.SceneMetrics.NPCBannerBuff.Length)
 					Main.SceneMetrics.NPCBannerBuff[bannerId] = true;
 			}
