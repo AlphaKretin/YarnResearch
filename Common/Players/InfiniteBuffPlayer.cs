@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
 using Terraria.ModLoader.Config;
 using Terraria.ModLoader.IO;
+using YarnResearch.Common.Systems;
 
 namespace YarnResearch.Common.Players
 {
@@ -27,6 +29,12 @@ namespace YarnResearch.Common.Players
 		// Saved states for content whose mod isn't currently loaded, held so they are written back unchanged.
 		private readonly Dictionary<BuffDefinition, bool> _unloadedBuffs = [];
 		private readonly Dictionary<ItemDefinition, bool> _unloadedBanners = [];
+
+		public override void PostUpdate()
+		{
+			if (Player.whoAmI == Main.myPlayer)
+				InfiniteBuffSystem.RestoreDigestedBuffs(Player);
+		}
 
 		public override void SaveData(TagCompound tag)
 		{

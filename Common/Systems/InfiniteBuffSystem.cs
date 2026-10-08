@@ -92,6 +92,11 @@ namespace YarnResearch.Common.Systems
 		private static LocalizedText _buffBarFullText;
 
 		private static On_Player.hook_DelBuff _delBuffHook;
+		private static On_Player.hook_TryToPoop _tryToPoopHook;
+
+		// Set only while vanilla's toilet routine runs, so a food buff it removes can be told from a dismiss.
+		private static bool _digesting;
+		private static bool _restoreOnStandingUp;
 		private static On_ItemSlot.hook_DrawItemIcon _drawItemIconHook;
 		private static On_Main.hook_UpdateSceneMetrics _updateSceneMetricsHook;
 
@@ -108,6 +113,20 @@ namespace YarnResearch.Common.Systems
 				orig(self, b);
 			};
 			On_Player.DelBuff += _delBuffHook;
+
+			_tryToPoopHook = (On_Player.orig_TryToPoop orig, Player self) =>
+			{
+				_digesting = self.whoAmI == Main.myPlayer;
+				try
+				{
+					orig(self);
+				}
+				finally
+				{
+					_digesting = false;
+				}
+			};
+			On_Player.TryToPoop += _tryToPoopHook;
 
 			// Marks items shown as infinite-toggled in the Journey Mode Duplication panel. Scoped to that
 			// one slot context deliberately, rather than GlobalItem.PreDrawInInventory everywhere, to avoid
@@ -154,6 +173,12 @@ namespace YarnResearch.Common.Systems
 			{
 				On_Player.DelBuff -= _delBuffHook;
 				_delBuffHook = null;
+			}
+
+			if (_tryToPoopHook != null)
+			{
+				On_Player.TryToPoop -= _tryToPoopHook;
+				_tryToPoopHook = null;
 			}
 
 			if (_drawItemIconHook != null)
@@ -460,6 +485,13 @@ namespace YarnResearch.Common.Systems
 			if (!state.BuffStates.GetValueOrDefault(buffType))
 				return;
 
+			// A toilet digesting the buff leaves the toggle on; the buff comes back once the player stands up.
+			if (_digesting)
+			{
+				_restoreOnStandingUp = true;
+				return;
+			}
+
 			if (buffType == BuffID.MonsterBanner)
 			{
 				foreach (int itemType in state.BannerStates.Keys.ToArray())
@@ -484,6 +516,15 @@ namespace YarnResearch.Common.Systems
 				if (on)
 					SetInfinite(player, buffType, on: true);
 			}
+		}
+
+		public static void RestoreDigestedBuffs(Player player)
+		{
+			if (!_restoreOnStandingUp || player.sitting.isSitting)
+				return;
+
+			_restoreOnStandingUp = false;
+			RegrantToggledBuffs(player);
 		}
 
 		// Gives every researched buff item the player hasn't decided on the same default a fresh research
