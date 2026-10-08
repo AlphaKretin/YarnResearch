@@ -22,6 +22,7 @@ namespace YarnResearch.Common.Systems
 		{
 			None,
 			GardenGnome,
+			WaterCandle,
 			Banner,
 			Placed,
 			Consumable,
@@ -77,6 +78,10 @@ namespace YarnResearch.Common.Systems
 		// Garden Gnome's luck bonus is not a real Player.buffType/BuffID at all - no buff icon, implemented
 		// purely via the Player.HasGardenGnomeNearby proximity bool - so it gets the same per-tick forcing
 		// as banners, just a single bool instead of a set.
+		//
+		// Water Candle does have a buff, but the buff is only an indicator: the spawn-rate effect belongs to
+		// the scene's candle zone flag, which vanilla also grants the buff from. Forcing that flag gives the
+		// real effect and the icon together. It raises enemy spawns, so it is never turned on automatically.
 		private static bool AnyBannerOn(InfiniteBuffPlayer state) => state.BannerStates.ContainsValue(true);
 
 		// Vanilla banner itemType -> banner ID. Vanilla only maps the other way (BannerSystem.BannerToItem).
@@ -166,11 +171,14 @@ namespace YarnResearch.Common.Systems
 
 		// Single source of truth for what an item counts as here, so the tooltip gate, the auto-default on
 		// research, and the manual toggle can't disagree about a given item. BuffType is 0 for Garden Gnome,
-		// which has no buff of its own.
+		// which has no buff of its own, and for Water Candle, whose buff this system never manages itself.
 		private static (BuffItemKind Kind, int BuffType) Classify(Item item)
 		{
 			if (item.type == ItemID.GardenGnome)
 				return (BuffItemKind.GardenGnome, 0);
+
+			if (item.type == ItemID.WaterCandle)
+				return (BuffItemKind.WaterCandle, 0);
 
 			if (IsBannerItem(item.type))
 				return (BuffItemKind.Banner, BuffID.MonsterBanner);
@@ -209,6 +217,7 @@ namespace YarnResearch.Common.Systems
 			{
 				BuffItemKind.None => false,
 				BuffItemKind.GardenGnome => State.GardenGnome == true,
+				BuffItemKind.WaterCandle => State.WaterCandle,
 				BuffItemKind.Banner => State.BannerStates.GetValueOrDefault(item.type),
 				_ => IsInfinite(buffType),
 			};
@@ -239,7 +248,7 @@ namespace YarnResearch.Common.Systems
 
 		private static bool IsBannerItem(int itemType) => BannerIdForItem(itemType) >= 0;
 
-		// Re-forces the bespoke proximity flags for banners/Garden Gnome so vanilla's own buff-granting, luck
+		// Re-forces the bespoke proximity flags for banners/Garden Gnome/Water Candle so vanilla's own buff-granting, luck
 		// calculation and banner tooltip see them as active. Vanilla keeps resetting them to their real
 		// proximity values, so this is called both every tick from YarnResearchPlayer.PreModifyLuck and
 		// straight after each scene scan, not just once at toggle time.
@@ -249,6 +258,13 @@ namespace YarnResearch.Common.Systems
 
 			if (state.GardenGnome == true)
 				player.HasGardenGnomeNearby = true;
+
+			if (state.WaterCandle)
+			{
+				Main.SceneMetrics.ZoneWaterCandle = true;
+				if (Main.SceneMetrics.WaterCandleCount < 1)
+					Main.SceneMetrics.WaterCandleCount = 1;
+			}
 
 			if (!AnyBannerOn(state))
 				return;
@@ -356,6 +372,10 @@ namespace YarnResearch.Common.Systems
 			{
 				case BuffItemKind.GardenGnome:
 					state.GardenGnome = state.GardenGnome != true;
+					break;
+
+				case BuffItemKind.WaterCandle:
+					state.WaterCandle = !state.WaterCandle;
 					break;
 
 				case BuffItemKind.Banner:

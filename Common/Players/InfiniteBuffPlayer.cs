@@ -21,6 +21,9 @@ namespace YarnResearch.Common.Players
 		// Null means never decided.
 		public bool? GardenGnome { get; set; }
 
+		// Off unless the player turns it on, so there is no undecided state to track.
+		public bool WaterCandle { get; set; }
+
 		// Saved states for content whose mod isn't currently loaded, held so they are written back unchanged.
 		private readonly Dictionary<BuffDefinition, bool> _unloadedBuffs = [];
 		private readonly Dictionary<ItemDefinition, bool> _unloadedBanners = [];
@@ -32,6 +35,9 @@ namespace YarnResearch.Common.Players
 
 			if (GardenGnome is bool gnome)
 				tag["InfiniteGardenGnome"] = gnome;
+
+			if (WaterCandle)
+				tag["InfiniteWaterCandle"] = true;
 		}
 
 		public override void LoadData(TagCompound tag)
@@ -52,6 +58,7 @@ namespace YarnResearch.Common.Players
 			LoadStates(tag, BannerStates, _unloadedBanners, "BannersOff", on: false);
 
 			GardenGnome = tag.TryGet("InfiniteGardenGnome", out bool gnome) ? gnome : null;
+			WaterCandle = tag.GetBool("InfiniteWaterCandle");
 		}
 
 		private static void SaveStates<T>(TagCompound tag, Dictionary<int, bool> states, Dictionary<T, bool> unloaded,
