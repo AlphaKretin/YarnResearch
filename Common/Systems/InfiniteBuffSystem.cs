@@ -32,6 +32,10 @@ namespace YarnResearch.Common.Systems
 		// Gnome, which have no buffType of their own and use bespoke per-tick proximity forcing instead.
 		private static InfiniteBuffPlayer State => Main.LocalPlayer.GetModPlayer<InfiniteBuffPlayer>();
 
+		// Every buffType whose process-global TimeLeftDoesNotDecrease/buffNoTimeDisplay flags are currently
+		// switched on by this system.
+		private static readonly HashSet<int> FlaggedBuffs = new();
+
 		// Curated whitelist of placed buff items that grant a normal Player.buffType buff - itemType ->
 		// buffType.
 		private static readonly Dictionary<int, int> PlacedBuffItems = new() {
@@ -349,8 +353,7 @@ namespace YarnResearch.Common.Systems
 			}
 
 			states[buffType] = on;
-			BuffID.Sets.TimeLeftDoesNotDecrease[buffType] = on;
-			Main.buffNoTimeDisplay[buffType] = on;
+			SetGlobalFlags(buffType, on);
 
 			if (on)
 			{
@@ -404,8 +407,7 @@ namespace YarnResearch.Common.Systems
 			}
 
 			state.BuffStates[buffType] = false;
-			BuffID.Sets.TimeLeftDoesNotDecrease[buffType] = false;
-			Main.buffNoTimeDisplay[buffType] = false;
+			SetGlobalFlags(buffType, on: false);
 		}
 
 		// Re-applies every toggled-on buffType: the process-global TimeLeftDoesNotDecrease/buffNoTimeDisplay
@@ -433,15 +435,29 @@ namespace YarnResearch.Common.Systems
 
 		public static bool IsInfinite(int buffType) => State.BuffStates.GetValueOrDefault(buffType);
 
+		private static void SetGlobalFlags(int buffType, bool on)
+		{
+			BuffID.Sets.TimeLeftDoesNotDecrease[buffType] = on;
+			Main.buffNoTimeDisplay[buffType] = on;
+
+			if (on)
+				FlaggedBuffs.Add(buffType);
+			else
+				FlaggedBuffs.Remove(buffType);
+		}
+
 		// The toggle state belongs to the player and survives; only the process-global flags it set are
-		// reset, so they don't leak onto the next character or world.
+		// reset, so they don't leak onto the next character or world. This also runs during mod unload,
+		// when Main.LocalPlayer may have no ModPlayers, so it must not read player state.
 		public override void ClearWorld()
 		{
-			foreach (int buffType in State.BuffStates.Keys)
+			foreach (int buffType in FlaggedBuffs)
 			{
 				BuffID.Sets.TimeLeftDoesNotDecrease[buffType] = false;
 				Main.buffNoTimeDisplay[buffType] = false;
 			}
+
+			FlaggedBuffs.Clear();
 		}
 	}
 }
