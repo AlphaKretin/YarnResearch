@@ -1257,10 +1257,10 @@ namespace YarnResearch.Common.Systems
 		// full entry list (not just ActiveEntries) so conditional/currently-hidden stock is considered too,
 		// e.g. a biome-exclusive item counts once its gating Condition is researched-satisfiable even while
 		// the shop isn't showing it right now. Only NPCShop (not other AbstractNPCShop implementers) exposes
-		// the full entry list needed for this. TravelingMerchantShop is a special case: its actual per-visit
-		// randomized stock lives in the raw-item-id Main.travelShop array, not in any AbstractNPCShop.Entry
-		// list (its own Entries/InfoEntries are unrelated fixed/info-only listings), so it's handled
-		// separately below to research only what he's currently stocking, not his full pool.
+		// the full entry list needed for this. TravelingMerchantShop needs more on top: its Entries are only
+		// the stock he sells every visit, while the per-visit randomized stock lives in the raw-item-id
+		// Main.travelShop array (its InfoEntries list his whole pool, for display only), so that array is
+		// read as well to research what he's currently stocking, not his full pool.
 		public static void ProcessShopEntries(AbstractNPCShop shop)
 		{
 			var config = ModContent.GetInstance<YarnResearchConfig>();
@@ -1270,6 +1270,12 @@ namespace YarnResearch.Common.Systems
 			BeginBatch();
 			try
 			{
+				if (shop is NPCShop npcShop)
+				{
+					foreach (NPCShop.Entry entry in npcShop.Entries)
+						AttemptShopResearch(entry);
+				}
+
 				if (shop is TravelingMerchantShop)
 				{
 					foreach (int itemType in Main.travelShop)
@@ -1277,11 +1283,6 @@ namespace YarnResearch.Common.Systems
 						if (itemType != 0)
 							AttemptShopResearch(itemType);
 					}
-				}
-				else if (shop is NPCShop npcShop)
-				{
-					foreach (NPCShop.Entry entry in npcShop.Entries)
-						AttemptShopResearch(entry);
 				}
 			}
 			finally
@@ -1365,11 +1366,28 @@ namespace YarnResearch.Common.Systems
 					ResearchedTypes.Contains(carriedItemType))
 					continue;
 
+				if (condition.Description.Key == CarriesAnyPalConditionKey && PalItemTypes.Any(ResearchedTypes.Contains))
+					continue;
+
 				return false;
 			}
 
 			return true;
 		}
+
+		// The Travelling Merchant's "carries any Pal" Condition is built inline by NPCShopDatabase from a
+		// predicate naming all five items, so there is no itemId closure for TryGetPlayerCarriesItemType to
+		// read and no public instance to compare against - its description key is all that identifies it.
+		private const string CarriesAnyPalConditionKey = "Conditions.PlayerCarriesItem5";
+
+		// The Trusty variants satisfy the condition in vanilla but are missing from tModLoader's predicate.
+		private static readonly int[] PalItemTypes =
+		[
+			ItemID.PalworldDigtoise, ItemID.PalworldMinionCattiva, ItemID.PalworldMinionFoxsparks,
+			ItemID.PalworldPetChillet, ItemID.PalworldPetChilletIgnis,
+			ItemID.PalworldTrustyDigtoise, ItemID.PalworldMinionTrustyCattiva, ItemID.PalworldMinionTrustyFoxsparks,
+			ItemID.PalworldMountTrustyChillet, ItemID.PalworldMountTrustyChilletIgnis
+		];
 
 		// Condition.PlayerCarriesItem(itemId) has no public property exposing itemId - it's a factory method
 		// whose Condition just captures itemId in the predicate closure. Reading the compiler-generated
