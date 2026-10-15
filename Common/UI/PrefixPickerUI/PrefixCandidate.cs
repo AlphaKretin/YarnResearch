@@ -1,25 +1,28 @@
 using System.Collections.Generic;
 using Terraria;
+using Terraria.ID;
 using Terraria.Localization;
 using Terraria.ModLoader;
-using YarnResearch.Common.Systems;
 
 namespace YarnResearch.Common.UI.PrefixPickerUI
 {
 	public readonly struct PrefixCandidate
 	{
+		// Vanilla's own "no prefix" id - Item.Prefix(0) is documented to do nothing.
+		public const int NoPrefixId = 0;
+
 		private static readonly LocalizedText NoPrefixName =
 			ModContent.GetInstance<YarnResearch>().GetLocalization($"{nameof(PrefixCandidate)}.NoPrefix");
 
 		public readonly int PrefixId;
 		public readonly string DisplayName;
-		public readonly int Value;
+		public readonly float ValueMultiplier;
 
-		private PrefixCandidate(int prefixId, string displayName, int value)
+		private PrefixCandidate(int prefixId, string displayName, float valueMultiplier)
 		{
 			PrefixId = prefixId;
 			DisplayName = displayName;
-			Value = value;
+			ValueMultiplier = valueMultiplier;
 		}
 
 		public static List<PrefixCandidate> GetCandidates(Item item)
@@ -39,33 +42,37 @@ namespace YarnResearch.Common.UI.PrefixPickerUI
 					TryAdd(item, modPrefix.Type, results, seen);
 			}
 
-			// No public API exposes a prefix's value multiplier directly (ModPrefix.ModifyValue only runs as
-			// a side effect of actually applying the prefix), so GetPrefixValue rolls it onto a scratch item
-			// of the same type and reads back the resulting Item.value.
 			if (results.Count == 0)
 				return results;
 
-			results.Sort((a, b) => b.Value.CompareTo(a.Value));
+			results.Sort((a, b) => b.ValueMultiplier.CompareTo(a.ValueMultiplier));
 
 			// Pinned to the top rather than sorted in by value: it's the "clear what's set here" row, not a
 			// modifier competing with the others on strength.
-			results.Insert(0, new PrefixCandidate(PrefixTrial.NoPrefixId, NoPrefixName.Value, 0));
+			results.Insert(0, new PrefixCandidate(NoPrefixId, NoPrefixName.Value, 0f));
 
 			return results;
 		}
 
 		private static void TryAdd(Item item, int prefixId, List<PrefixCandidate> results, HashSet<int> seen)
 		{
-			if (prefixId <= 0 || !seen.Add(prefixId) || !item.CanRollPrefix(prefixId))
+			if (prefixId <= 0 || !seen.Add(prefixId) || !item.CanApplyPrefix(prefixId))
 				return;
 
-			// A prefix the item can roll but that doesn't survive being applied is left out of the list
-			// entirely - offering it would mean the player picks one prefix and gets a random other one.
-			PrefixTrial.Result trial = PrefixTrial.Of(item.type, prefixId);
-			if (!trial.Applied)
-				return;
+			results.Add(new PrefixCandidate(prefixId, Lang.prefix[prefixId].Value, GetValueMultiplier(item, prefixId)));
+		}
 
-			results.Add(new PrefixCandidate(prefixId, Lang.prefix[prefixId].Value, trial.Value));
+		// Item.Prefix applies a modded prefix's ModifyValue on top of the stat-derived multiplier, then
+		// multiplies the item's value by the square of the result - squaring keeps the order, so this sorts
+		// the same as the real sell value would.
+		private static float GetValueMultiplier(Item item, int prefixId)
+		{
+			item.TryGetPrefixStatMultipliersForItem(prefixId, out _, out _, out _, out _, out _, out _, out _, out _, out _, out float valueMult);
+
+			if (prefixId >= PrefixID.Count)
+				PrefixLoader.GetPrefix(prefixId)?.ModifyValue(ref valueMult);
+
+			return valueMult;
 		}
 	}
 }

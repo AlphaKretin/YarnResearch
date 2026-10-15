@@ -8,6 +8,7 @@ using Terraria.ModLoader;
 using Terraria.ModLoader.IO;
 using YarnResearch.Common.Configs;
 using YarnResearch.Common.Systems;
+using YarnResearch.Common.UI.PrefixPickerUI;
 
 namespace YarnResearch.Common.Players
 {
@@ -40,19 +41,16 @@ namespace YarnResearch.Common.Players
 		// what a group with no entry already produces, so the two would be the same state stored two ways.
 		public void SetDefaultPrefix(PrefixGroup group, int prefixId)
 		{
-			if (prefixId == PrefixTrial.NoPrefixId)
+			if (prefixId == PrefixCandidate.NoPrefixId)
 				DefaultPrefixByGroup.Remove(group);
 			else
 				DefaultPrefixByGroup[group] = prefixId;
 		}
 
-		// A group's default still has to survive being applied to this particular item - the group is a set of
-		// items, not one item, so a prefix chosen on one member can be a no-op on another, and Item.Prefix
-		// answers a no-op by rolling something random instead (see PrefixTrial).
+		// The group is a set of items, not one item, so a prefix chosen on one member can be a no-op on another.
 		public bool TryGetDefaultPrefix(Item item, out int prefixId) =>
 			DefaultPrefixByGroup.TryGetValue(PrefixGroup.Of(item), out prefixId) &&
-			item.CanRollPrefix(prefixId) &&
-			PrefixTrial.Of(item.type, prefixId).Applied;
+			item.CanApplyPrefix(prefixId);
 
 		public void ArmOneShotPrefix(int itemType, int prefixId) => _pendingOneShotPrefix = (itemType, prefixId);
 

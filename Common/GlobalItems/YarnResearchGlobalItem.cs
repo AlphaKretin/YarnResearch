@@ -53,7 +53,7 @@ namespace YarnResearch.Common.GlobalItems
 			// has to stop here rather than fall through to the group default the player was overriding.
 			if (player.TryConsumeOneShotPrefix(item.type, out int oneShotPrefix))
 			{
-				if (oneShotPrefix != PrefixTrial.NoPrefixId && item.CanRollPrefix(oneShotPrefix))
+				if (oneShotPrefix != PrefixCandidate.NoPrefixId && item.CanApplyPrefix(oneShotPrefix))
 					item.Prefix(oneShotPrefix);
 
 				return;
