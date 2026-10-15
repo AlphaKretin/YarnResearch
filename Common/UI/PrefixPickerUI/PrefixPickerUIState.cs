@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Terraria;
 using Terraria.GameContent.UI.Elements;
 using Terraria.UI;
 
@@ -8,12 +9,15 @@ namespace YarnResearch.Common.UI.PrefixPickerUI
 	public class PrefixPickerUIState : UIState
 	{
 		private readonly Action _onClose;
+		private UIPanel _panel;
 		private UIList _list;
 
 		public PrefixPickerUIState(Action onClose)
 		{
 			_onClose = onClose;
 		}
+
+		public bool ContainsMouse => _panel.GetDimensions().ToRectangle().Contains(Main.mouseX, Main.mouseY);
 
 		public override void OnInitialize()
 		{
@@ -24,6 +28,7 @@ namespace YarnResearch.Common.UI.PrefixPickerUI
 			panel.HAlign = 0.42f;
 			panel.VAlign = 0.6f;
 			Append(panel);
+			_panel = panel;
 
 			_list = [];
 			_list.Width.Set(-24f, 1f);

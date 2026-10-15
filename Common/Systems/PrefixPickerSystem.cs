@@ -176,6 +176,11 @@ namespace YarnResearch.Common.Systems
 
 			if (_userInterface.CurrentState != null)
 			{
+				// Nothing else claims the mouse over the popup, so with autopause off a click on it is left
+				// for the world to consume (swinging the held item) and never reaches the rows.
+				if (_uiState.ContainsMouse)
+					Main.LocalPlayer.mouseInterface = true;
+
 				_userInterface.Update(gameTime);
 
 				// Gated on the grid specifically, not on the power menu being open at all: switching to
